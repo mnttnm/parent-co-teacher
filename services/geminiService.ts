@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { HomeworkAnalysis, GuidedSession, KidProfile, ChapterGuide } from '../types';
+import { HomeworkAnalysis, GuidedSession, KidProfile, ChapterGuide, RevisionQuiz, MicroLesson } from '../types';
 import { MOCK_ANALYSIS, MOCK_SESSION, MOCK_CHAPTER_GUIDE } from '../constants';
 
 // Initialize Gemini
@@ -271,6 +271,120 @@ export const generateChapterGuide = async (
   } catch (error) {
     console.error("Chapter API Error, using mock:", error);
     return MOCK_CHAPTER_GUIDE;
+  }
+};
+
+/**
+ * Tier 3: Revision Mode (Quiz Generation)
+ * Generates MCQs and Flashcards based on a topic string (from history).
+ */
+export const generateRevisionQuiz = async (
+  topic: string,
+  kid: KidProfile
+): Promise<RevisionQuiz> => {
+  try {
+    const prompt = `
+      Create a revision quiz for the topic: "${topic}".
+      Child: ${kid.name}, ${kid.grade}.
+      
+      Requirements:
+      1. Generate 2 Multiple Choice Questions (MCQ).
+      2. Generate 1 Flashcard Question (simple concept recall).
+      3. Language: English for the question, but Provide **Hinglish** explanations for the parent to help.
+      
+      Output JSON.
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            topic: { type: Type.STRING },
+            questions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.INTEGER },
+                  question: { type: Type.STRING },
+                  type: { type: Type.STRING, enum: ['mcq', 'flashcard'] },
+                  options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  correctAnswer: { type: Type.STRING },
+                  explanation: { type: Type.STRING }
+                },
+                required: ['id', 'question', 'type', 'correctAnswer', 'explanation']
+              }
+            }
+          },
+          required: ['topic', 'questions']
+        }
+      }
+    });
+
+    const text = response.text;
+    return JSON.parse(text) as RevisionQuiz;
+  } catch (error) {
+    console.error("Quiz Gen Error", error);
+    throw error;
+  }
+};
+
+/**
+ * Tier 3: Micro-Lesson (Weakness Fixer)
+ * Generates a 3-step quick fix for a specific problem area.
+ */
+export const generateMicroLesson = async (
+  topic: string,
+  weakness: string,
+  kid: KidProfile
+): Promise<MicroLesson> => {
+  try {
+    const prompt = `
+      Create a "5-minute Micro-Lesson" to fix a weakness.
+      Topic: "${topic}"
+      Weakness Tag: "${weakness}" (e.g., Vocabulary, Concept).
+      Child: ${kid.name}, ${kid.grade}.
+      
+      Output 3 simple steps for the parent to teach this concept effectively in Hinglish.
+      Include a visual prompt suggestion for each step if needed.
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            focusArea: { type: Type.STRING },
+            steps: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  text: { type: Type.STRING, description: "Instruction for parent" },
+                  speakScript: { type: Type.STRING, description: "Hinglish script to say" },
+                  visualPrompt: { type: Type.STRING, description: "Prompt for an image if needed" }
+                },
+                required: ['text', 'speakScript']
+              }
+            }
+          },
+          required: ['title', 'focusArea', 'steps']
+        }
+      }
+    });
+    
+    return JSON.parse(response.text) as MicroLesson;
+  } catch (error) {
+    console.error("Micro Lesson Error", error);
+    throw error;
   }
 };
 

@@ -5,13 +5,17 @@ import { ScanButton } from './components/ScanButton';
 import { AudioPlayer } from './components/AudioPlayer';
 import { VisualCue } from './components/VisualCue';
 import { WeaknessTracker } from './components/WeaknessTracker';
+import { AnalyticsDashboard } from './components/AnalyticsDashboard';
+import { RevisionSession } from './components/RevisionSession';
+import { SmartLoader } from './components/SmartLoader';
+import { Confetti } from './components/Confetti';
 import { KIDS } from './constants';
-import { KidProfile, HomeworkAnalysis, GuidedSession, ChapterGuide, HistoryItem } from './types';
-import { analyzeHomeworkImage, generateParentGuide, generateChapterGuide } from './services/geminiService';
-import { saveSession, getHistory } from './services/storageService';
+import { KidProfile, HomeworkAnalysis, GuidedSession, ChapterGuide, HistoryItem, RevisionQuiz, MicroLesson } from './types';
+import { analyzeHomeworkImage, generateParentGuide, generateChapterGuide, generateRevisionQuiz, generateMicroLesson } from './services/geminiService';
+import { saveSession, getHistory, updateSessionFeedback, getWeaknessStats } from './services/storageService';
 
 // Updated type to include 'choice' and split active states
-type AppStatus = 'idle' | 'scanning' | 'analyzing' | 'choice' | 'generating' | 'active_homework' | 'active_chapter';
+type AppStatus = 'idle' | 'scanning' | 'analyzing' | 'choice' | 'generating' | 'active_homework' | 'active_chapter' | 'revision' | 'micro_lesson';
 
 const App: React.FC = () => {
   // --- State ---
@@ -24,26 +28,36 @@ const App: React.FC = () => {
   
   // Homework Mode State
   const [guide, setGuide] = useState<GuidedSession | null>(null);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   
   // Chapter Mode State
   const [chapterGuide, setChapterGuide] = useState<ChapterGuide | null>(null);
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
   
+  // Tier 3 Data
+  const [revisionQuiz, setRevisionQuiz] = useState<RevisionQuiz | null>(null);
+  const [microLesson, setMicroLesson] = useState<MicroLesson | null>(null);
+  const [showConfetti, setShowConfetti] = useState(false);
+
   // UI State
   const [showEnglishContext, setShowEnglishContext] = useState(false);
-  const [weaknessStats, setWeaknessStats] = useState<Record<string, number>>({});
   const [expandedQuestionId, setExpandedQuestionId] = useState<number | null>(null);
+  
+  // Persistence State
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [dashboardStats, setDashboardStats] = useState<Record<string, number>>({});
 
   // --- Effects ---
   useEffect(() => {
-    // Load history asynchronously
-    const loadHistory = async () => {
-      const items = await getHistory();
-      setHistory(items);
-    };
-    loadHistory();
-  }, []);
+    refreshData();
+  }, [activeKid.id]); // Refresh when kid changes
+
+  const refreshData = async () => {
+    const items = await getHistory();
+    setHistory(items);
+    const stats = await getWeaknessStats(activeKid.id);
+    setDashboardStats(stats);
+  };
 
   // --- Handlers ---
 
@@ -74,6 +88,7 @@ const App: React.FC = () => {
 
   const restoreSession = (item: HistoryItem) => {
     setAnalysis(item.analysis);
+    setCurrentSessionId(item.id);
     const kid = KIDS.find(k => k.id === item.kidId) || KIDS[0];
     setActiveKid(kid);
     
@@ -115,15 +130,14 @@ const App: React.FC = () => {
 
   const startHomeworkMode = async (analysisData: HomeworkAnalysis) => {
     setStatus('generating');
-    // FIXED: Now passing scannedImages to generateParentGuide
     const guideResult = await generateParentGuide(scannedImages, analysisData, activeKid);
     setGuide(guideResult);
     
     // Save to History (Async with IDB)
-    await saveSession(activeKid.id, analysisData, 'homework', guideResult, scannedImages);
-    const updatedHistory = await getHistory();
-    setHistory(updatedHistory);
+    const saved = await saveSession(activeKid.id, analysisData, 'homework', guideResult, scannedImages);
+    if (saved) setCurrentSessionId(saved.id);
     
+    await refreshData();
     setStatus('active_homework');
   };
 
@@ -134,11 +148,35 @@ const App: React.FC = () => {
     setCurrentChunkIndex(0);
 
     // Save to History (Async with IDB)
-    await saveSession(activeKid.id, analysisData, 'chapter', chapterResult, scannedImages);
-    const updatedHistory = await getHistory();
-    setHistory(updatedHistory);
+    const saved = await saveSession(activeKid.id, analysisData, 'chapter', chapterResult, scannedImages);
+    if (saved) setCurrentSessionId(saved.id);
 
+    await refreshData();
     setStatus('active_chapter');
+  };
+
+  const startRevision = async (topic: string) => {
+    setStatus('generating');
+    try {
+      const quiz = await generateRevisionQuiz(topic, activeKid);
+      setRevisionQuiz(quiz);
+      setStatus('revision');
+    } catch (e) {
+      console.error(e);
+      setStatus('idle'); // Fallback
+    }
+  };
+
+  const startMicroLesson = async (topic: string, weakness: string) => {
+    setStatus('generating');
+    try {
+      const lesson = await generateMicroLesson(topic, weakness, activeKid);
+      setMicroLesson(lesson);
+      setStatus('micro_lesson');
+    } catch (e) {
+      console.error(e);
+      setStatus('idle');
+    }
   };
 
   const handleReset = () => {
@@ -150,19 +188,72 @@ const App: React.FC = () => {
     setCurrentChunkIndex(0);
     setShowEnglishContext(false);
     setExpandedQuestionId(null);
+    setRevisionQuiz(null);
+    setMicroLesson(null);
+    setShowConfetti(false);
   };
 
-  const handleWeaknessFeedback = (tags: string[]) => {
-    setWeaknessStats(prev => {
-      const next = { ...prev };
-      tags.forEach(tag => {
-        next[tag] = (next[tag] || 0) + 1;
-      });
-      return next;
-    });
+  const handleWeaknessFeedback = async (tags: string[]) => {
+    if (currentSessionId) {
+      await updateSessionFeedback(currentSessionId, tags);
+      await refreshData();
+    }
+  };
+  
+  const handleMicroLessonComplete = () => {
+    setShowConfetti(true);
+    setTimeout(() => {
+        handleReset();
+    }, 4000);
+  };
+
+  const handleRevisionComplete = () => {
+    setShowConfetti(true);
+    setTimeout(() => {
+        handleReset();
+    }, 4000);
   };
 
   // --- Render Helpers ---
+
+  const renderMicroLesson = () => {
+    if (!microLesson) return null;
+    return (
+      <div className="pb-32 px-4 animate-fade-in space-y-6">
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-yellow-200 mt-4 flex justify-between items-center">
+           <div>
+             <h2 className="text-xl font-bold text-gray-900">⚡ Fast Fix: {microLesson.focusArea}</h2>
+             <p className="text-sm text-gray-500">{microLesson.title}</p>
+           </div>
+           <button onClick={handleReset} className="text-gray-400 p-2">✕</button>
+        </div>
+
+        {microLesson.steps.map((step, idx) => (
+          <div key={idx} className="bg-white border-l-4 border-yellow-400 rounded-r-xl p-5 shadow-sm">
+             <div className="flex items-center mb-2">
+               <span className="bg-yellow-100 text-yellow-800 text-xs font-bold px-2 py-1 rounded-full mr-2">Step {idx + 1}</span>
+               <h3 className="text-gray-900 font-bold">For Parent</h3>
+             </div>
+             <p className="text-gray-600 mb-4">{step.text}</p>
+             
+             <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+               <p className="text-xs font-bold text-blue-600 uppercase mb-1">Say to {activeKid.name}</p>
+               <p className="text-lg text-gray-800 font-medium italic mb-2">"{step.speakScript}"</p>
+               <AudioPlayer text={step.speakScript} label="Play" className="scale-90 origin-left" />
+             </div>
+             {step.visualPrompt && <VisualCue prompt={step.visualPrompt} />}
+          </div>
+        ))}
+
+        <button 
+           onClick={handleMicroLessonComplete}
+           className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold shadow-lg"
+         >
+           Mark as Done!
+         </button>
+      </div>
+    );
+  };
 
   const renderChoiceScreen = () => {
     if (!analysis) return null;
@@ -179,7 +270,7 @@ const App: React.FC = () => {
          <div className="space-y-4">
            <button 
              onClick={() => startChapterMode(analysis)}
-             className="w-full bg-white border-2 border-indigo-100 p-5 rounded-2xl flex items-center shadow-sm hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left group"
+             className="w-full bg-white border-2 border-indigo-100 p-5 rounded-2xl flex items-center shadow-sm hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left group active:scale-95"
            >
              <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center text-2xl group-hover:bg-white transition-colors">
                📖
@@ -192,7 +283,7 @@ const App: React.FC = () => {
 
            <button 
              onClick={() => startHomeworkMode(analysis)}
-             className="w-full bg-white border-2 border-pink-100 p-5 rounded-2xl flex items-center shadow-sm hover:border-pink-500 hover:bg-pink-50 transition-all text-left group"
+             className="w-full bg-white border-2 border-pink-100 p-5 rounded-2xl flex items-center shadow-sm hover:border-pink-500 hover:bg-pink-50 transition-all text-left group active:scale-95"
            >
              <div className="w-12 h-12 bg-pink-100 rounded-full flex items-center justify-center text-2xl group-hover:bg-white transition-colors">
                ✏️
@@ -222,7 +313,7 @@ const App: React.FC = () => {
     return (
       <div className="pb-32 px-4 animate-fade-in space-y-6">
         {/* Header */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mt-4 flex justify-between items-center">
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mt-4 flex justify-between items-center sticky top-20 z-10">
            <div>
              <h2 className="text-lg font-bold text-gray-900">{chapterGuide.topic}</h2>
              <p className="text-xs text-gray-500 uppercase tracking-wide">
@@ -320,7 +411,7 @@ const App: React.FC = () => {
     return (
       <div className="pb-32 px-4 animate-fade-in space-y-6">
         {/* Header Summary */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mt-4">
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mt-4 sticky top-20 z-10">
           <div className="flex justify-between items-start mb-3">
              <span className="inline-block px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded">
                 {analysis.subject} • {analysis.chapter || 'Topic'}
@@ -464,20 +555,6 @@ const App: React.FC = () => {
     );
   };
 
-  const renderLoadingState = () => {
-    return (
-      <div className="flex flex-col items-center justify-center h-[50vh] px-6 text-center">
-        <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-6"></div>
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">
-          {status === 'analyzing' ? `Analyzing content...` : 'Preparing your guide...'}
-        </h2>
-        <p className="text-gray-500">
-          We are analyzing the page and creating simple steps for you.
-        </p>
-      </div>
-    );
-  };
-
   const renderEmptyState = () => {
     return (
       <div className="px-6 py-10 text-center pb-32">
@@ -492,6 +569,15 @@ const App: React.FC = () => {
             Scan the <strong>Chapter</strong> or <strong>Homework</strong>. We'll help you teach both!
           </p>
         </div>
+
+        {/* Tier 3: Analytics Dashboard */}
+        <AnalyticsDashboard 
+          stats={dashboardStats} 
+          activeKid={activeKid}
+          history={history}
+          onStartRevision={startRevision}
+          onStartMicroLesson={startMicroLesson}
+        />
 
         {/* Recent Sessions List */}
         {history.length > 0 && (
@@ -527,21 +613,6 @@ const App: React.FC = () => {
               ))}
             </div>
           </div>
-        )}
-
-        {/* Tier 2: Learning Stats Mini-Dashboard */}
-        {Object.keys(weaknessStats).length > 0 && (
-           <div className="bg-gray-100 rounded-2xl p-4 text-left mt-6">
-             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Today's Focus Areas</h3>
-             <div className="flex gap-2 flex-wrap">
-               {Object.entries(weaknessStats).map(([key, count]) => (
-                 <span key={key} className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-white text-gray-700 border border-gray-200">
-                   {key === 'vocab' ? 'Hard Words' : key === 'concept' ? 'Concepts' : 'Focus'}
-                   <span className="ml-2 bg-gray-100 text-gray-600 px-1.5 rounded-full">{count}</span>
-                 </span>
-               ))}
-             </div>
-           </div>
         )}
       </div>
     );
@@ -593,12 +664,22 @@ const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="max-w-md mx-auto">
+        {showConfetti && <Confetti />}
+        
         {status === 'idle' && renderEmptyState()}
         {status === 'scanning' && renderScanningState()}
-        {(status === 'analyzing' || status === 'generating') && renderLoadingState()}
+        
+        {/* NEW: Replaced basic loading state with SmartLoader */}
+        {status === 'analyzing' && <SmartLoader mode="analyzing" />}
+        {status === 'generating' && <SmartLoader mode="generating" />}
+
         {status === 'choice' && renderChoiceScreen()}
         {status === 'active_chapter' && renderActiveChapterSession()}
         {status === 'active_homework' && renderActiveHomeworkSession()}
+        {status === 'revision' && revisionQuiz && (
+           <RevisionSession quiz={revisionQuiz} onClose={handleRevisionComplete} />
+        )}
+        {status === 'micro_lesson' && renderMicroLesson()}
       </main>
 
       {/* Persistent Action Button */}

@@ -8,7 +8,7 @@ export interface KidProfile {
   schoolType: string; // e.g., 'English Medium'
 }
 
-export type SessionStatus = 'idle' | 'analyzing' | 'choice' | 'generating' | 'active_homework' | 'active_chapter';
+export type SessionStatus = 'idle' | 'scanning' | 'analyzing' | 'choice' | 'generating' | 'active_homework' | 'active_chapter' | 'revision' | 'micro_lesson';
 
 // Step 1: Vision Analysis Result
 export interface HomeworkAnalysis {
@@ -80,4 +80,29 @@ export interface HistoryItem {
   analysis: HomeworkAnalysis;
   data: ChapterGuide | GuidedSession;
   images?: string[]; // Stored base64 images for offline access
+  feedbackTags?: string[]; // Tags like 'vocab', 'concept'
+}
+
+// --- Tier 3 Types ---
+
+export interface RevisionQuiz {
+  topic: string;
+  questions: {
+    id: number;
+    question: string;
+    type: 'mcq' | 'flashcard';
+    options?: string[];
+    correctAnswer: string;
+    explanation: string; // Hinglish
+  }[];
+}
+
+export interface MicroLesson {
+  title: string;
+  focusArea: string; // e.g., 'Vocabulary'
+  steps: {
+    text: string;
+    speakScript: string; // Hinglish
+    visualPrompt?: string;
+  }[];
 }

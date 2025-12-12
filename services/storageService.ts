@@ -44,7 +44,8 @@ export const saveSession = async (
       type,
       analysis,
       data,
-      images // Store images for offline retrieval
+      images, // Store images for offline retrieval
+      feedbackTags: [] // Init empty
     };
 
     const db = await openDB();
@@ -59,6 +60,27 @@ export const saveSession = async (
   } catch (e) {
     console.error("Failed to save session to IDB", e);
     return null;
+  }
+};
+
+export const updateSessionFeedback = async (id: string, tags: string[]): Promise<void> => {
+  try {
+    const db = await openDB();
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+
+    // Get, Update, Put
+    const getReq = store.get(id);
+    
+    getReq.onsuccess = () => {
+      const data = getReq.result as HistoryItem;
+      if (data) {
+        data.feedbackTags = tags;
+        store.put(data);
+      }
+    };
+  } catch (e) {
+    console.error("Failed to update feedback", e);
   }
 };
 
@@ -82,6 +104,23 @@ export const getHistory = async (): Promise<HistoryItem[]> => {
     console.error("Failed to load history from IDB", e);
     return [];
   }
+};
+
+export const getWeaknessStats = async (kidId: string): Promise<Record<string, number>> => {
+  const history = await getHistory();
+  const kidHistory = history.filter(h => h.kidId === kidId);
+  
+  const stats: Record<string, number> = {};
+  
+  kidHistory.forEach(item => {
+    if (item.feedbackTags) {
+      item.feedbackTags.forEach(tag => {
+        stats[tag] = (stats[tag] || 0) + 1;
+      });
+    }
+  });
+  
+  return stats;
 };
 
 export const clearHistory = async (): Promise<void> => {
