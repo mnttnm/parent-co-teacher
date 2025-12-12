@@ -1,0 +1,7 @@
+{
+  "name": "Parent-Co-Teacher",
+  "description": "AI-powered teaching assistant for parents.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
