@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { KidSelector } from './components/KidSelector';
-import { ScanButton } from './components/ScanButton';
+import { BottomNavigation } from './components/BottomNavigation'; 
+import { Library } from './components/Library'; 
 import { AudioPlayer } from './components/AudioPlayer';
 import { VisualCue } from './components/VisualCue';
 import { WeaknessTracker } from './components/WeaknessTracker';
@@ -9,48 +9,40 @@ import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { RevisionSession } from './components/RevisionSession';
 import { SmartLoader } from './components/SmartLoader';
 import { Confetti } from './components/Confetti';
+import { ScanButton } from './components/ScanButton'; // Ensure this is imported
 import { KIDS } from './constants';
 import { KidProfile, HomeworkAnalysis, GuidedSession, ChapterGuide, HistoryItem, RevisionQuiz, MicroLesson } from './types';
 import { analyzeHomeworkImage, generateParentGuide, generateChapterGuide, generateRevisionQuiz, generateMicroLesson } from './services/geminiService';
 import { saveSession, getHistory, updateSessionFeedback, getWeaknessStats } from './services/storageService';
 
-// Updated type to include 'choice' and split active states
 type AppStatus = 'idle' | 'scanning' | 'analyzing' | 'choice' | 'generating' | 'active_homework' | 'active_chapter' | 'revision' | 'micro_lesson';
+type Tab = 'home' | 'library';
 
 const App: React.FC = () => {
   // --- State ---
   const [activeKid, setActiveKid] = useState<KidProfile>(KIDS[0]);
   const [status, setStatus] = useState<AppStatus>('idle');
+  const [activeTab, setActiveTab] = useState<Tab>('home');
   const [scannedImages, setScannedImages] = useState<string[]>([]);
+  const [isChildMenuOpen, setIsChildMenuOpen] = useState(false); // NEW: Dropdown State
   
   // Data State
   const [analysis, setAnalysis] = useState<HomeworkAnalysis | null>(null);
-  
-  // Homework Mode State
   const [guide, setGuide] = useState<GuidedSession | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  
-  // Chapter Mode State
   const [chapterGuide, setChapterGuide] = useState<ChapterGuide | null>(null);
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
-  
-  // Tier 3 Data
   const [revisionQuiz, setRevisionQuiz] = useState<RevisionQuiz | null>(null);
   const [microLesson, setMicroLesson] = useState<MicroLesson | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
-
-  // UI State
   const [showEnglishContext, setShowEnglishContext] = useState(false);
   const [expandedQuestionId, setExpandedQuestionId] = useState<number | null>(null);
-  
-  // Persistence State
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [dashboardStats, setDashboardStats] = useState<Record<string, number>>({});
 
-  // --- Effects ---
   useEffect(() => {
     refreshData();
-  }, [activeKid.id]); // Refresh when kid changes
+  }, [activeKid.id]);
 
   const refreshData = async () => {
     const items = await getHistory();
@@ -60,9 +52,13 @@ const App: React.FC = () => {
   };
 
   // --- Handlers ---
-
   const handleKidSwitch = (kid: KidProfile) => {
     setActiveKid(kid);
+    setIsChildMenuOpen(false);
+    resetToIdle();
+  };
+
+  const resetToIdle = () => {
     setStatus('idle');
     setScannedImages([]);
     setAnalysis(null);
@@ -71,11 +67,15 @@ const App: React.FC = () => {
     setCurrentChunkIndex(0);
     setShowEnglishContext(false);
     setExpandedQuestionId(null);
+    setRevisionQuiz(null);
+    setMicroLesson(null);
+    setShowConfetti(false);
   };
 
   const handleImageSelected = (base64Image: string) => {
     setScannedImages(prev => [...prev, base64Image]);
     setStatus('scanning');
+    setActiveTab('home'); 
   };
 
   const removeImage = (index: number) => {
@@ -92,10 +92,7 @@ const App: React.FC = () => {
     const kid = KIDS.find(k => k.id === item.kidId) || KIDS[0];
     setActiveKid(kid);
     
-    // Restore images if available so user can refer to them or rescan
-    if (item.images && item.images.length > 0) {
-      setScannedImages(item.images);
-    }
+    if (item.images && item.images.length > 0) setScannedImages(item.images);
     
     if (item.type === 'chapter') {
       setChapterGuide(item.data as ChapterGuide);
@@ -109,16 +106,11 @@ const App: React.FC = () => {
 
   const startAnalysis = async () => {
     if (scannedImages.length === 0) return;
-
     setStatus('analyzing');
-    
-    // Step 1: Vision Analysis
     const analysisResult = await analyzeHomeworkImage(scannedImages);
     setAnalysis(analysisResult);
     
-    // Logic: Determine Next Step based on detection
     const { hasChapterContent, hasHomeworkQuestions } = analysisResult.detectedContent;
-
     if (hasChapterContent && hasHomeworkQuestions) {
       setStatus('choice');
     } else if (hasChapterContent) {
@@ -132,11 +124,8 @@ const App: React.FC = () => {
     setStatus('generating');
     const guideResult = await generateParentGuide(scannedImages, analysisData, activeKid);
     setGuide(guideResult);
-    
-    // Save to History (Async with IDB)
     const saved = await saveSession(activeKid.id, analysisData, 'homework', guideResult, scannedImages);
     if (saved) setCurrentSessionId(saved.id);
-    
     await refreshData();
     setStatus('active_homework');
   };
@@ -146,11 +135,8 @@ const App: React.FC = () => {
     const chapterResult = await generateChapterGuide(scannedImages, analysisData, activeKid);
     setChapterGuide(chapterResult);
     setCurrentChunkIndex(0);
-
-    // Save to History (Async with IDB)
     const saved = await saveSession(activeKid.id, analysisData, 'chapter', chapterResult, scannedImages);
     if (saved) setCurrentSessionId(saved.id);
-
     await refreshData();
     setStatus('active_chapter');
   };
@@ -163,7 +149,7 @@ const App: React.FC = () => {
       setStatus('revision');
     } catch (e) {
       console.error(e);
-      setStatus('idle'); // Fallback
+      setStatus('idle');
     }
   };
 
@@ -179,398 +165,97 @@ const App: React.FC = () => {
     }
   };
 
-  const handleReset = () => {
-    setStatus('idle');
-    setScannedImages([]);
-    setAnalysis(null);
-    setGuide(null);
-    setChapterGuide(null);
-    setCurrentChunkIndex(0);
-    setShowEnglishContext(false);
-    setExpandedQuestionId(null);
-    setRevisionQuiz(null);
-    setMicroLesson(null);
-    setShowConfetti(false);
-  };
-
   const handleWeaknessFeedback = async (tags: string[]) => {
     if (currentSessionId) {
       await updateSessionFeedback(currentSessionId, tags);
       await refreshData();
     }
   };
-  
+
   const handleMicroLessonComplete = () => {
     setShowConfetti(true);
-    setTimeout(() => {
-        handleReset();
-    }, 4000);
+    setTimeout(() => resetToIdle(), 4000);
   };
-
+  
   const handleRevisionComplete = () => {
     setShowConfetti(true);
-    setTimeout(() => {
-        handleReset();
-    }, 4000);
+    setTimeout(() => resetToIdle(), 4000);
   };
 
-  // --- Render Helpers ---
 
-  const renderMicroLesson = () => {
-    if (!microLesson) return null;
-    return (
-      <div className="pb-32 px-4 animate-fade-in space-y-6">
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-yellow-200 mt-4 flex justify-between items-center">
-           <div>
-             <h2 className="text-xl font-bold text-gray-900">⚡ Fast Fix: {microLesson.focusArea}</h2>
-             <p className="text-sm text-gray-500">{microLesson.title}</p>
-           </div>
-           <button onClick={handleReset} className="text-gray-400 p-2">✕</button>
+  // --- Render Helpers (Revised for Compact Header & Animations) ---
+  
+  const renderCompactHeader = () => (
+    <div className="bg-white border-b border-stone-200 pt-safe-top pb-3 px-6 shadow-[0_2px_10px_-2px_rgba(0,0,0,0.05)] sticky top-0 z-30 transition-all">
+      <div className="flex justify-between items-center pt-3">
+        <div>
+           <h1 className="text-xl font-bold text-teal-700 tracking-tight">ParentGuide</h1>
+           <p className="text-stone-400 text-[10px] uppercase tracking-widest">Co-Teacher</p>
         </div>
-
-        {microLesson.steps.map((step, idx) => (
-          <div key={idx} className="bg-white border-l-4 border-yellow-400 rounded-r-xl p-5 shadow-sm">
-             <div className="flex items-center mb-2">
-               <span className="bg-yellow-100 text-yellow-800 text-xs font-bold px-2 py-1 rounded-full mr-2">Step {idx + 1}</span>
-               <h3 className="text-gray-900 font-bold">For Parent</h3>
+        
+        {/* Child Switcher Pill */}
+        <div className="relative">
+          <button 
+            onClick={() => setIsChildMenuOpen(!isChildMenuOpen)}
+            className="flex items-center bg-stone-100 hover:bg-stone-200 rounded-full pl-1 pr-3 py-1 transition-all active:scale-95 border border-stone-200"
+          >
+             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold mr-2 ${activeKid.avatarColor}`}>
+                {activeKid.name[0]}
              </div>
-             <p className="text-gray-600 mb-4">{step.text}</p>
-             
-             <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-               <p className="text-xs font-bold text-blue-600 uppercase mb-1">Say to {activeKid.name}</p>
-               <p className="text-lg text-gray-800 font-medium italic mb-2">"{step.speakScript}"</p>
-               <AudioPlayer text={step.speakScript} label="Play" className="scale-90 origin-left" />
-             </div>
-             {step.visualPrompt && <VisualCue prompt={step.visualPrompt} />}
-          </div>
-        ))}
+             <span className="text-sm font-bold text-stone-700 mr-1">{activeKid.name}</span>
+             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-4 h-4 text-stone-400 transition-transform ${isChildMenuOpen ? 'rotate-180' : ''}`}>
+                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+             </svg>
+          </button>
 
-        <button 
-           onClick={handleMicroLessonComplete}
-           className="w-full bg-gray-900 text-white py-4 rounded-xl font-bold shadow-lg"
-         >
-           Mark as Done!
-         </button>
-      </div>
-    );
-  };
-
-  const renderChoiceScreen = () => {
-    if (!analysis) return null;
-    return (
-      <div className="px-6 py-10 animate-fade-in flex flex-col justify-center min-h-[60vh]">
-         <div className="text-center mb-8">
-            <span className="inline-block px-3 py-1 bg-indigo-100 text-indigo-700 font-bold rounded-full mb-3 text-sm">
-              {analysis.subject} • {analysis.chapter}
-            </span>
-            <h2 className="text-2xl font-bold text-gray-900">What do you want to do?</h2>
-            <p className="text-gray-500 mt-2">I see both the story and questions.</p>
-         </div>
-
-         <div className="space-y-4">
-           <button 
-             onClick={() => startChapterMode(analysis)}
-             className="w-full bg-white border-2 border-indigo-100 p-5 rounded-2xl flex items-center shadow-sm hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left group active:scale-95"
-           >
-             <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center text-2xl group-hover:bg-white transition-colors">
-               📖
-             </div>
-             <div className="ml-4">
-               <h3 className="text-lg font-bold text-gray-900">Teach the Chapter</h3>
-               <p className="text-sm text-gray-500">Break it down into small parts</p>
-             </div>
-           </button>
-
-           <button 
-             onClick={() => startHomeworkMode(analysis)}
-             className="w-full bg-white border-2 border-pink-100 p-5 rounded-2xl flex items-center shadow-sm hover:border-pink-500 hover:bg-pink-50 transition-all text-left group active:scale-95"
-           >
-             <div className="w-12 h-12 bg-pink-100 rounded-full flex items-center justify-center text-2xl group-hover:bg-white transition-colors">
-               ✏️
-             </div>
-             <div className="ml-4">
-               <h3 className="text-lg font-bold text-gray-900">Help with Homework</h3>
-               <p className="text-sm text-gray-500">Solve the specific questions</p>
-             </div>
-           </button>
-
-           <button 
-             onClick={() => startChapterMode(analysis)}
-             className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-5 rounded-2xl flex items-center justify-center shadow-lg transform active:scale-95 transition-all"
-           >
-             <span className="font-bold text-lg">Do Both (Start with Chapter)</span>
-           </button>
-         </div>
-      </div>
-    );
-  };
-
-  const renderActiveChapterSession = () => {
-    if (!chapterGuide || !analysis) return null;
-    const chunk = chapterGuide.subChapters[currentChunkIndex];
-    const isLast = currentChunkIndex === chapterGuide.subChapters.length - 1;
-
-    return (
-      <div className="pb-32 px-4 animate-fade-in space-y-6">
-        {/* Header */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mt-4 flex justify-between items-center sticky top-20 z-10">
-           <div>
-             <h2 className="text-lg font-bold text-gray-900">{chapterGuide.topic}</h2>
-             <p className="text-xs text-gray-500 uppercase tracking-wide">
-               Part {currentChunkIndex + 1} of {chapterGuide.subChapters.length}: {chunk.title}
-             </p>
-           </div>
-           <button onClick={handleReset} className="text-gray-400 p-2">
-             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-           </button>
-        </div>
-
-        {/* 1. Original Content */}
-        <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
-          <div className="flex justify-between items-center mb-3">
-             <h3 className="text-xs font-bold text-gray-500 uppercase">1. From the Book</h3>
-             <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded">Read this to {activeKid.name}</span>
-          </div>
-          <p className="text-gray-900 italic font-serif leading-relaxed text-lg mb-4">"{chunk.originalText}"</p>
-          <AudioPlayer text={chunk.originalText} label="Listen to Pronunciation" className="text-sm w-full justify-center bg-white border-gray-300 shadow-sm" />
-        </div>
-
-        {/* 2. Parent Friendly Explanation */}
-        <div className="bg-orange-50 border-l-4 border-orange-400 rounded-r-xl p-5 shadow-sm">
-           <h3 className="flex items-center text-orange-800 font-bold mb-2">
-             <span className="mr-2">🧠</span> For You (Understand It)
-           </h3>
-           <p className="text-gray-800 mb-3">{chunk.parentExplanation}</p>
-           <AudioPlayer text={chunk.parentExplanation} label="Listen (Hinglish)" className="text-xs scale-90 origin-left" />
-        </div>
-
-        {/* 3. Teaching Guide */}
-        <div className="bg-blue-50 border-l-4 border-blue-500 rounded-r-xl p-5 shadow-sm">
-           <h3 className="flex items-center text-blue-800 font-bold mb-2">
-             <span className="mr-2">👨‍🏫</span> How to Teach {activeKid.name}
-           </h3>
-           <p className="text-gray-800 mb-3">{chunk.teachingGuide}</p>
-           <AudioPlayer text={chunk.teachingGuide} label="Listen (Hinglish)" className="text-xs scale-90 origin-left" />
-        </div>
-
-        {/* 4. Simplified English */}
-        <div className="bg-green-50 border-2 border-green-200 rounded-xl p-5 shadow-sm">
-           <div className="flex items-center mb-3">
-             <div className="bg-green-100 text-green-700 p-2 rounded-full mr-3">
-               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                 <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
-               </svg>
-             </div>
-             <div>
-               <h3 className="text-green-900 font-bold text-base">Play for {activeKid.name}</h3>
-               <p className="text-xs text-green-700">Simple English explanation</p>
-             </div>
-           </div>
-           <p className="text-gray-800 mb-4 font-medium text-lg">"{chunk.simplifiedEnglish}"</p>
-           <AudioPlayer text={chunk.simplifiedEnglish} label={`Play for ${activeKid.name}`} className="w-full justify-center bg-white border-green-300 text-green-700" />
-        </div>
-
-        {/* 5. Kid Facing Explanation (Hinglish Script) */}
-        <div className="bg-purple-50 border border-purple-100 rounded-xl p-5 shadow-sm relative overflow-hidden">
-           <div className="absolute top-0 right-0 p-4 opacity-10 text-6xl">✨</div>
-           <h3 className="text-purple-800 font-bold mb-2 text-sm">5. Say to {activeKid.name} (Hinglish)</h3>
-           <p className="text-gray-900 text-lg font-medium leading-relaxed mb-4">"{chunk.kidExplanation}"</p>
-           <AudioPlayer text={chunk.kidExplanation} label="Play Script" className="w-full justify-center" />
-        </div>
-
-        {/* Navigation */}
-        <div className="pt-4">
-          {isLast ? (
-             <button 
-               onClick={() => startHomeworkMode(analysis)}
-               className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center space-x-2 animate-bounce-subtle"
-             >
-               <span>✨ Chapter Done! Go to Questions</span>
-             </button>
-          ) : (
-             <button 
-               onClick={() => {
-                 setCurrentChunkIndex(prev => prev + 1);
-                 window.scrollTo({ top: 0, behavior: 'smooth' });
-               }}
-               className="w-full bg-white border-2 border-indigo-600 text-indigo-600 py-4 rounded-xl font-bold hover:bg-indigo-50 transition-colors"
-             >
-               Next Chunk (Part {currentChunkIndex + 2}) →
-             </button>
+          {/* Popover Menu */}
+          {isChildMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setIsChildMenuOpen(false)}></div>
+              <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-stone-100 p-2 z-50 animate-scale-in origin-top-right">
+                <p className="text-[10px] text-stone-400 font-bold uppercase px-2 py-1 mb-1">Select Child</p>
+                {KIDS.map(kid => (
+                  <button
+                    key={kid.id}
+                    onClick={() => handleKidSwitch(kid)}
+                    className={`w-full flex items-center p-2 rounded-lg text-left mb-1 transition-colors ${kid.id === activeKid.id ? 'bg-teal-50 text-teal-800' : 'hover:bg-stone-50'}`}
+                  >
+                     <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold mr-2 ${kid.avatarColor}`}>
+                        {kid.name[0]}
+                     </div>
+                     <div>
+                       <p className="text-sm font-bold">{kid.name}</p>
+                       <p className="text-[10px] text-stone-500">{kid.grade}</p>
+                     </div>
+                  </button>
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>
-    );
-  };
-
-  const renderActiveHomeworkSession = () => {
-    if (!analysis || !guide) return null;
-
-    const contextText = showEnglishContext ? guide.parentContextEnglish : guide.parentContextOriginal;
-
-    return (
-      <div className="pb-32 px-4 animate-fade-in space-y-6">
-        {/* Header Summary */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mt-4 sticky top-20 z-10">
-          <div className="flex justify-between items-start mb-3">
-             <span className="inline-block px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded">
-                {analysis.subject} • {analysis.chapter || 'Topic'}
-             </span>
-            <button onClick={handleReset} className="text-gray-400 hover:text-gray-600 p-1">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <h2 className="text-xl font-bold text-gray-900">Homework & Questions</h2>
-        </div>
-
-        {/* Card 1: Parent Context */}
-        <div className="bg-orange-50 border-l-4 border-orange-400 rounded-r-xl p-5 shadow-sm">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="flex items-center text-orange-800 font-bold">
-              <span className="mr-2">🧠</span> For You (Parent)
-            </h3>
-            <button 
-              onClick={() => setShowEnglishContext(!showEnglishContext)}
-              className="text-xs font-semibold bg-white border border-orange-200 text-orange-700 px-3 py-1 rounded-full shadow-sm hover:bg-orange-50 transition-colors"
-            >
-              {showEnglishContext ? 'Show Hinglish' : 'Show English'}
-            </button>
-          </div>
-          <p className="text-gray-800 leading-relaxed text-lg mb-4">
-            {contextText}
-          </p>
-          <AudioPlayer text={contextText} label="Listen Explanation" className="w-full justify-center" />
-        </div>
-
-        {/* NEW: Vocabulary Card */}
-        {guide.vocabularyHelp && guide.vocabularyHelp.length > 0 && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-5 shadow-sm">
-            <h3 className="text-yellow-800 font-bold mb-3 flex items-center">
-              <span className="mr-2">📖</span> Word Help
-            </h3>
-            <div className="space-y-3">
-              {guide.vocabularyHelp.map((item, idx) => (
-                <div key={idx} className="bg-white p-3 rounded-lg border border-yellow-100">
-                  <div className="flex justify-between">
-                    <span className="font-bold text-gray-900">{item.word}</span>
-                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{item.pronunciation}</span>
-                  </div>
-                  <p className="text-sm text-gray-700 mt-1">{item.meaning}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        
-        {/* Card 2: Questions List */}
-        {guide.questionsList && guide.questionsList.length > 0 ? (
-          <div className="space-y-4">
-            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide ml-1">Homework Questions</h3>
-            {guide.questionsList.map((q) => {
-              const isExpanded = expandedQuestionId === q.id;
-              return (
-                <div key={q.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-                  <div className="p-4">
-                    <div className="flex justify-between items-start">
-                       <span className="inline-flex items-center justify-center w-6 h-6 bg-indigo-100 text-indigo-700 font-bold rounded-full text-xs mr-3 flex-shrink-0">
-                         {q.id}
-                       </span>
-                       <div className="flex-1">
-                         <p className="font-bold text-gray-900 text-lg mb-2">{q.text}</p>
-                         {q.options && (
-                           <ul className="space-y-1 mb-3">
-                             {q.options.map((opt, i) => (
-                               <li key={i} className="text-sm text-gray-600 pl-2 border-l-2 border-gray-200">{opt}</li>
-                             ))}
-                           </ul>
-                         )}
-                         <AudioPlayer text={q.text} label="Read Question" className="text-xs scale-90 origin-left" />
-                       </div>
-                    </div>
-                  </div>
-                  
-                  {/* Answer Section (Toggle) */}
-                  <div className={`bg-gray-50 border-t border-gray-100 transition-all ${isExpanded ? 'p-4' : 'px-4 py-2'}`}>
-                    <button 
-                      onClick={() => setExpandedQuestionId(isExpanded ? null : q.id)}
-                      className="w-full flex justify-between items-center text-sm font-bold text-indigo-600"
-                    >
-                      <span>{isExpanded ? 'Hide Answer' : 'Show Answer & Help'}</span>
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={`w-4 h-4 transform transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                      </svg>
-                    </button>
-                    
-                    {isExpanded && (
-                      <div className="mt-3 space-y-3 animate-fade-in">
-                        <div className="bg-green-50 p-3 rounded-lg border border-green-100">
-                          <p className="text-xs text-green-700 font-bold uppercase mb-1">Correct Answer</p>
-                          <p className="text-green-900 font-medium">{q.answer}</p>
-                        </div>
-                        <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100">
-                          <p className="text-xs text-indigo-700 font-bold uppercase mb-1">Explain to {activeKid.name} (Hinglish)</p>
-                          <p className="text-indigo-900 text-sm">{q.explanation}</p>
-                          <AudioPlayer text={q.explanation} label="Listen" className="text-xs scale-90 origin-left mt-2" />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          /* Fallback for cases without specific questions list */
-          <div className="bg-green-50 border border-green-100 rounded-xl p-5 shadow-sm">
-             <h3 className="text-green-800 font-bold mb-2 text-sm uppercase tracking-wide">
-               Concept / Answer
-             </h3>
-             <p className="text-gray-800">
-               {guide.finalAnswer || "No specific questions identified. Please rely on the context above."}
-             </p>
-          </div>
-        )}
-
-        {/* Card 3: Speak Script */}
-        <div className="bg-blue-50 border-l-4 border-blue-500 rounded-r-xl p-5 shadow-sm mt-4">
-          <h3 className="flex items-center text-blue-800 font-bold mb-2">
-            <span className="mr-2">🗣️</span> Start by saying (Hinglish)
-          </h3>
-          <p className="text-lg text-gray-900 font-medium leading-relaxed italic mb-4">
-            "{guide.speakScript}"
-          </p>
-          <AudioPlayer text={guide.speakScript} label="Play Script" className="w-full justify-center" />
-        </div>
-
-        {/* Tier 2: Visual Cue */}
-        {guide.visualCuePrompt && (
-          <VisualCue prompt={guide.visualCuePrompt} />
-        )}
-
-        {/* Tier 2: Weakness Tracking */}
-        <WeaknessTracker onFeedback={handleWeaknessFeedback} />
-      </div>
-    );
-  };
+    </div>
+  );
 
   const renderEmptyState = () => {
     return (
-      <div className="px-6 py-10 text-center pb-32">
-        <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 mb-6">
-          <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+      <div className="px-6 pt-8 pb-32 animate-fade-in">
+        {/* Welcome Card */}
+        <div className="bg-gradient-to-br from-white to-stone-50 rounded-3xl p-8 shadow-sm border border-stone-100 mb-8 text-center animate-slide-up">
+          <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-600 shadow-inner">
             <span className="text-3xl">👋</span>
           </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-2">
-            Ready to help {activeKid.name}?
+          <h2 className="text-xl font-bold text-stone-800 mb-2">
+            Hi Parent!
           </h2>
-          <p className="text-gray-500">
-            Scan the <strong>Chapter</strong> or <strong>Homework</strong>. We'll help you teach both!
+          <p className="text-stone-500 text-sm leading-relaxed">
+             Tap <span className="font-bold text-teal-700">Scan Content</span> below.<br/>
+             {activeKid.name} ka lesson scan kijiye.<br/>
+             Main aapko step-by-step guide karunga.
           </p>
         </div>
 
-        {/* Tier 3: Analytics Dashboard */}
+        {/* Analytics */}
         <AnalyticsDashboard 
           stats={dashboardStats} 
           activeKid={activeKid}
@@ -581,30 +266,29 @@ const App: React.FC = () => {
 
         {/* Recent Sessions List */}
         {history.length > 0 && (
-          <div className="mt-8 text-left">
+          <div className="mt-8 text-left animate-slide-up delay-200">
             <div className="flex justify-between items-center mb-4 px-1">
-              <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide">Recent Sessions</h3>
-              <span className="text-xs text-indigo-600 font-medium">Offline Available</span>
+              <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wide">Recent Sessions</h3>
             </div>
             <div className="space-y-3">
               {history.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => restoreSession(item)}
-                  className="w-full bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center hover:bg-gray-50 transition-colors"
+                  className="w-full bg-white p-4 rounded-xl border border-stone-100 shadow-sm flex items-center hover:bg-stone-50 transition-all active:scale-98"
                 >
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl mr-3 ${
-                    item.type === 'chapter' ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600'
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl mr-3 shadow-sm ${
+                    item.type === 'chapter' ? 'bg-teal-50 text-teal-600' : 'bg-amber-50 text-amber-600'
                   }`}>
                     {item.type === 'chapter' ? '📖' : '✏️'}
                   </div>
                   <div className="flex-1 text-left">
-                    <h4 className="font-bold text-gray-900 truncate">{item.topic}</h4>
-                    <p className="text-xs text-gray-500">
+                    <h4 className="font-bold text-stone-800 truncate">{item.topic}</h4>
+                    <p className="text-xs text-stone-400">
                       {new Date(item.timestamp).toLocaleDateString()} • {item.subject}
                     </p>
                   </div>
-                  <div className="text-gray-400">
+                  <div className="text-stone-300">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                     </svg>
@@ -617,78 +301,259 @@ const App: React.FC = () => {
       </div>
     );
   };
-
-  // New Staging Area for multiple images
-  const renderScanningState = () => {
+  
+  const renderScanningState = () => (
+    <div className="px-6 py-8 pt-12 pb-40 text-center animate-fade-in">
+       <h2 className="text-xl font-bold text-stone-900 mb-4 animate-slide-up">Scanned Pages ({scannedImages.length})</h2>
+       <div className="grid grid-cols-2 gap-4 mb-6 animate-slide-up delay-100">
+         {scannedImages.map((img, idx) => (
+           <div key={idx} className="relative rounded-xl overflow-hidden shadow-sm border border-stone-200 aspect-[3/4] group">
+             <img src={`data:image/jpeg;base64,${img}`} className="w-full h-full object-cover" alt={`Page ${idx + 1}`} />
+             <div className="absolute inset-0 bg-black/10"></div>
+             <button 
+               onClick={() => removeImage(idx)} 
+               className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center bg-red-500 text-white rounded-full shadow-md active:scale-95"
+             >
+               ✕
+             </button>
+           </div>
+         ))}
+       </div>
+       <div className="fixed bottom-28 left-6 right-6 z-40 animate-slide-up delay-200">
+         <button 
+           onClick={startAnalysis} 
+           className="w-full bg-teal-600 text-white font-bold py-4 rounded-full shadow-xl shadow-teal-200 text-lg flex items-center justify-center space-x-2 animate-bounce-subtle"
+         >
+           <span>✨ Start Teaching ({scannedImages.length})</span>
+         </button>
+       </div>
+    </div>
+  );
+  
+  const renderChoiceScreen = () => {
+    if (!analysis) return null;
     return (
-      <div className="px-4 py-6 pb-40 text-center">
-         <h2 className="text-xl font-bold text-gray-900 mb-4">Scanned Pages ({scannedImages.length})</h2>
-         <div className="grid grid-cols-2 gap-4 mb-6">
-           {scannedImages.map((img, idx) => (
-             <div key={idx} className="relative rounded-xl overflow-hidden shadow-sm border border-gray-200 aspect-[3/4] group">
-               <img src={`data:image/jpeg;base64,${img}`} className="w-full h-full object-cover" alt={`Page ${idx + 1}`} />
-               <div className="absolute inset-0 bg-black/10"></div>
-               <button 
-                 onClick={() => removeImage(idx)} 
-                 className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center bg-red-500 text-white rounded-full shadow-md active:scale-95"
-               >
-                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                 </svg>
-               </button>
-             </div>
-           ))}
+      <div className="px-6 py-10 animate-fade-in flex flex-col justify-center min-h-[60vh]">
+         <div className="text-center mb-8 animate-slide-up">
+            <span className="inline-block px-3 py-1 bg-teal-50 text-teal-700 font-bold rounded-full mb-3 text-xs border border-teal-100">
+              {analysis.subject} • {analysis.chapter}
+            </span>
+            <h2 className="text-2xl font-bold text-stone-900">Content Found!</h2>
+            <p className="text-stone-500 mt-2">How do you want to teach this?</p>
          </div>
-         
-         {/* Floating Action to Start Analysis */}
-         <div className="fixed bottom-24 left-6 right-6 z-40">
-           <button 
-             onClick={startAnalysis} 
-             className="w-full bg-indigo-600 text-white font-bold py-4 rounded-full shadow-xl text-lg flex items-center justify-center space-x-2 animate-bounce-subtle"
-           >
-             <span>✨ Start Teaching ({scannedImages.length})</span>
+
+         <div className="space-y-4 animate-slide-up delay-100">
+           <button onClick={() => startChapterMode(analysis)} className="w-full bg-white border-2 border-teal-50 p-5 rounded-2xl flex items-center shadow-sm hover:border-teal-500 hover:bg-teal-50 transition-all text-left group active:scale-95">
+             <div className="w-12 h-12 bg-teal-100 text-teal-600 rounded-full flex items-center justify-center text-2xl">📖</div>
+             <div className="ml-4">
+               <h3 className="text-lg font-bold text-stone-900">Explain the Story</h3>
+               <p className="text-sm text-stone-500">Break down the chapter</p>
+             </div>
+           </button>
+
+           <button onClick={() => startHomeworkMode(analysis)} className="w-full bg-white border-2 border-amber-50 p-5 rounded-2xl flex items-center shadow-sm hover:border-amber-500 hover:bg-amber-50 transition-all text-left group active:scale-95">
+             <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center text-2xl">✏️</div>
+             <div className="ml-4">
+               <h3 className="text-lg font-bold text-stone-900">Solve Questions</h3>
+               <p className="text-sm text-stone-500">Get answers & hints</p>
+             </div>
            </button>
          </div>
       </div>
     );
   };
+  
+  const renderActiveChapterSession = () => {
+     if (!chapterGuide) return null;
+     const chunk = chapterGuide.subChapters[currentChunkIndex];
+     return (
+        <div className="pb-32 px-4 animate-fade-in space-y-6 pt-6">
+            <div className="bg-white rounded-2xl p-4 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07)] border border-stone-100 flex justify-between items-center sticky top-20 z-20 animate-slide-up">
+              <div><h2 className="text-lg font-bold text-stone-900">{chapterGuide.topic}</h2><p className="text-xs text-stone-400 uppercase">Part {currentChunkIndex + 1}/{chapterGuide.subChapters.length}</p></div>
+              <button onClick={resetToIdle} className="text-stone-400 p-2 bg-stone-50 rounded-full">✕</button>
+            </div>
+            
+            <div className="space-y-6 animate-slide-up delay-100">
+              <div className="bg-stone-50 rounded-xl p-5 border border-stone-200">
+                 <h3 className="text-xs font-bold text-stone-500 uppercase mb-2">Book Text</h3>
+                 <p className="text-stone-800 italic font-serif leading-relaxed text-lg mb-4">"{chunk.originalText}"</p>
+                 <AudioPlayer text={chunk.originalText} label="Read Aloud" className="text-sm w-full justify-center bg-white" />
+              </div>
+              <div className="bg-amber-50 border-l-4 border-amber-400 rounded-r-xl p-5 shadow-sm">
+                 <h3 className="flex items-center text-amber-800 font-bold mb-2">🧠 Understand It</h3>
+                 <p className="text-stone-800 mb-3">{chunk.parentExplanation}</p>
+                 <AudioPlayer text={chunk.parentExplanation} label="Listen (Hinglish)" className="scale-90 origin-left" />
+              </div>
+              <div className="bg-teal-50 border-l-4 border-teal-500 rounded-r-xl p-5 shadow-sm">
+                 <h3 className="flex items-center text-teal-800 font-bold mb-2">🗣️ Say to {activeKid.name}</h3>
+                 <p className="text-lg text-stone-900 font-medium leading-relaxed mb-4">"{chunk.kidExplanation}"</p>
+                 <AudioPlayer text={chunk.kidExplanation} label="Play Script" className="w-full justify-center" />
+              </div>
+            </div>
+            
+            <div className="pt-4 animate-slide-up delay-200">
+                {currentChunkIndex < chapterGuide.subChapters.length - 1 ? (
+                    <button onClick={() => { setCurrentChunkIndex(p => p + 1); window.scrollTo({top:0, behavior:'smooth'}); }} className="w-full bg-white border-2 border-teal-600 text-teal-600 py-4 rounded-xl font-bold active:bg-teal-50">Next Part →</button>
+                ) : (
+                    <button onClick={() => startHomeworkMode(analysis!)} className="w-full bg-teal-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-teal-200 active:scale-98">Go to Questions ✨</button>
+                )}
+            </div>
+        </div>
+     );
+  };
+
+  const renderActiveHomeworkSession = () => {
+    if (!guide) return null;
+    const contextText = showEnglishContext ? guide.parentContextEnglish : guide.parentContextOriginal;
+    return (
+      <div className="pb-32 px-4 animate-fade-in space-y-6 pt-6">
+         <div className="bg-white rounded-2xl p-4 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07)] border border-stone-100 mt-4 sticky top-20 z-20 flex justify-between animate-slide-up">
+           <h2 className="text-xl font-bold text-stone-900">Homework Helper</h2>
+           <button onClick={resetToIdle} className="text-stone-400 bg-stone-50 rounded-full p-2">✕</button>
+         </div>
+         
+         <div className="space-y-6 animate-slide-up delay-100">
+           <div className="bg-amber-50 border-l-4 border-amber-400 rounded-r-xl p-5 shadow-sm">
+              <div className="flex justify-between mb-2">
+                  <h3 className="text-amber-800 font-bold">🧠 For You (Parent)</h3>
+                  <button onClick={() => setShowEnglishContext(!showEnglishContext)} className="text-xs bg-white text-amber-700 px-2 py-1 rounded border border-amber-200">{showEnglishContext ? "Hinglish" : "English"}</button>
+              </div>
+              <p className="text-stone-800 leading-relaxed text-lg mb-4">{contextText}</p>
+              <AudioPlayer text={contextText} label="Listen Explanation" className="w-full justify-center" />
+           </div>
+
+           {/* Questions Loop */}
+           {guide.questionsList && guide.questionsList.length > 0 && (
+               <div className="space-y-4">
+                   {guide.questionsList.map(q => {
+                       const isExpanded = expandedQuestionId === q.id;
+                       return (
+                           <div key={q.id} className="bg-white border border-stone-200 rounded-xl overflow-hidden shadow-sm transition-all duration-300">
+                               <div className="p-4 flex">
+                                   <span className="w-6 h-6 bg-teal-100 text-teal-700 rounded-full flex items-center justify-center text-xs font-bold mr-3 flex-shrink-0">{q.id}</span>
+                                   <div className="flex-1">
+                                       <p className="font-bold text-stone-900 mb-2">{q.text}</p>
+                                       <AudioPlayer text={q.text} label="Read" className="scale-75 origin-left" />
+                                   </div>
+                               </div>
+                               <div className={`bg-stone-50 border-t border-stone-100 transition-all ${isExpanded ? 'p-4 opacity-100' : 'h-0 opacity-0 overflow-hidden'}`}>
+                                   <button onClick={() => setExpandedQuestionId(isExpanded ? null : q.id)} className="w-full flex justify-between text-sm font-bold text-teal-600 mb-2">
+                                       <span>Answer Details</span>
+                                   </button>
+                                   <div className="space-y-3">
+                                       <div className="bg-emerald-50 p-3 rounded border border-emerald-100"><p className="text-emerald-900 font-medium">{q.answer}</p></div>
+                                       <div className="bg-teal-50 p-3 rounded border border-teal-100">
+                                           <p className="text-xs text-teal-700 font-bold mb-1">Explain to {activeKid.name}:</p>
+                                           <p className="text-teal-900 text-sm">{q.explanation}</p>
+                                           <AudioPlayer text={q.explanation} label="Listen" className="scale-75 origin-left mt-2" />
+                                       </div>
+                                   </div>
+                               </div>
+                               {!isExpanded && (
+                                 <button onClick={() => setExpandedQuestionId(q.id)} className="w-full py-2 bg-stone-50 text-xs text-stone-500 font-bold border-t border-stone-100">Show Answer ▼</button>
+                               )}
+                               {isExpanded && (
+                                 <button onClick={() => setExpandedQuestionId(null)} className="w-full py-2 bg-stone-50 text-xs text-stone-500 font-bold border-t border-stone-100">Hide Answer ▲</button>
+                               )}
+                           </div>
+                       )
+                   })}
+               </div>
+           )}
+           
+           <div className="bg-teal-50 border-l-4 border-teal-500 rounded-r-xl p-5 shadow-sm">
+              <h3 className="text-teal-800 font-bold mb-2">🗣️ Start by saying:</h3>
+              <p className="text-lg text-stone-900 italic mb-4">"{guide.speakScript}"</p>
+              <AudioPlayer text={guide.speakScript} label="Play Script" className="w-full justify-center" />
+           </div>
+
+           {guide.visualCuePrompt && <VisualCue prompt={guide.visualCuePrompt} />}
+           <WeaknessTracker onFeedback={handleWeaknessFeedback} />
+         </div>
+      </div>
+    );
+  };
+
+  const renderMicroLesson = () => {
+      if(!microLesson) return null;
+      return (
+          <div className="pb-32 px-4 pt-6 animate-fade-in space-y-6">
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-amber-200 flex justify-between items-center sticky top-20 z-20 animate-slide-up">
+                  <div><h2 className="text-xl font-bold text-stone-900">⚡ Fast Fix: {microLesson.focusArea}</h2></div>
+                  <button onClick={resetToIdle}>✕</button>
+              </div>
+              <div className="space-y-4 animate-slide-up delay-100">
+                {microLesson.steps.map((step, idx) => (
+                    <div key={idx} className="bg-white border-l-4 border-amber-400 rounded-r-xl p-5 shadow-sm">
+                        <span className="bg-amber-100 text-amber-800 text-xs font-bold px-2 py-1 rounded-full mb-2 inline-block">Step {idx + 1}</span>
+                        <p className="text-stone-600 mb-4">{step.text}</p>
+                        <div className="bg-stone-50 p-4 rounded-xl border border-stone-200">
+                            <p className="text-xs font-bold text-stone-500 uppercase mb-1">Say to {activeKid.name}</p>
+                            <p className="text-lg text-stone-800 font-medium italic mb-2">"{step.speakScript}"</p>
+                            <AudioPlayer text={step.speakScript} label="Play" className="scale-90 origin-left" />
+                        </div>
+                    </div>
+                ))}
+              </div>
+              <button onClick={handleMicroLessonComplete} className="w-full bg-stone-900 text-white py-4 rounded-xl font-bold animate-slide-up delay-200 shadow-lg active:scale-95">Done!</button>
+          </div>
+      )
+  };
+
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans">
-      {/* Top Navigation / Kid Selector */}
-      <KidSelector 
-        kids={KIDS} 
-        activeKid={activeKid} 
-        onSelect={handleKidSwitch} 
-      />
+    <div className="min-h-screen bg-stone-50 font-sans pb-20">
+      {/* 1. COMPACT HEADER (Always visible) */}
+      {renderCompactHeader()}
 
-      {/* Main Content Area */}
       <main className="max-w-md mx-auto">
         {showConfetti && <Confetti />}
         
-        {status === 'idle' && renderEmptyState()}
-        {status === 'scanning' && renderScanningState()}
-        
-        {/* NEW: Replaced basic loading state with SmartLoader */}
-        {status === 'analyzing' && <SmartLoader mode="analyzing" />}
-        {status === 'generating' && <SmartLoader mode="generating" />}
-
-        {status === 'choice' && renderChoiceScreen()}
-        {status === 'active_chapter' && renderActiveChapterSession()}
-        {status === 'active_homework' && renderActiveHomeworkSession()}
-        {status === 'revision' && revisionQuiz && (
-           <RevisionSession quiz={revisionQuiz} onClose={handleRevisionComplete} />
+        {/* Render Logic based on Tab OR Active Mode */}
+        {status !== 'idle' ? (
+           // ACTIVE MODES TAKE OVER
+           <>
+             {status === 'scanning' && renderScanningState()}
+             {(status === 'analyzing' || status === 'generating') && <SmartLoader mode={status === 'analyzing' ? 'analyzing' : 'generating'} />}
+             {status === 'choice' && renderChoiceScreen()}
+             {status === 'active_chapter' && renderActiveChapterSession()}
+             {status === 'active_homework' && renderActiveHomeworkSession()}
+             {status === 'revision' && revisionQuiz && <RevisionSession quiz={revisionQuiz} onClose={handleRevisionComplete} />}
+             {status === 'micro_lesson' && renderMicroLesson()}
+           </>
+        ) : (
+           // TABS (Only visible when idle)
+           <>
+             {activeTab === 'home' && renderEmptyState()}
+             {activeTab === 'library' && <Library kid={activeKid} />}
+           </>
         )}
-        {status === 'micro_lesson' && renderMicroLesson()}
       </main>
 
-      {/* Persistent Action Button */}
-      {(status === 'idle' || status === 'active_homework' || status === 'scanning') && (
-        <ScanButton 
-          onImageSelected={handleImageSelected} 
-          isLoading={false}
-          label={status === 'scanning' ? "Scan Another Page" : undefined}
-        />
+      {/* 2. BOTTOM NAVIGATION (Always visible unless in deep immersive mode?) */}
+      {(status === 'idle' || status === 'scanning') && (
+        <>
+          <BottomNavigation 
+            activeTab={activeTab} 
+            onTabChange={setActiveTab} 
+            onScanSelected={handleImageSelected} 
+            isScanning={status === 'scanning'}
+          />
+          {/* Use ScanButton when status is 'scanning' to allow adding more pages or finalizing */}
+          {(status === 'scanning') && (
+            <ScanButton 
+               onImageSelected={handleImageSelected} 
+               isLoading={false}
+               label="Add More or Done"
+            />
+          )}
+          {/* Note: The main Scan action is now central in BottomNavigation for 'idle' state. 
+              The ScanButton component is re-used here just for the 'scanning' state flow 
+              where users might want to add more pages, OR we can rely on the UI inside renderScanningState.
+              Actually, renderScanningState has a 'Start Teaching' button.
+              So we just need the FAB in the nav bar to trigger the initial scan.
+          */}
+        </>
       )}
     </div>
   );
