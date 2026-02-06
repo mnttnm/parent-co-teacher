@@ -1,9 +1,18 @@
 
-import { HistoryItem, HomeworkAnalysis, GuidedSession, ChapterGuide } from '../types';
+import {
+  HistoryItem,
+  HomeworkAnalysis,
+  GuidedSession,
+  ChapterGuide,
+  MarathonPlan,
+  MarathonMissionStatus,
+  MarathonCheckIn
+} from '../types';
 
 const DB_NAME = 'ParentTeacherDB';
-const DB_VERSION = 1;
-const STORE_NAME = 'sessions';
+const DB_VERSION = 2;
+const SESSIONS_STORE = 'sessions';
+const PLANS_STORE = 'marathonPlans';
 
 // Helper to open DB
 const openDB = (): Promise<IDBDatabase> => {
@@ -12,8 +21,11 @@ const openDB = (): Promise<IDBDatabase> => {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(SESSIONS_STORE)) {
+        db.createObjectStore(SESSIONS_STORE, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(PLANS_STORE)) {
+        db.createObjectStore(PLANS_STORE, { keyPath: 'id' });
       }
     };
 
@@ -50,8 +62,8 @@ export const saveSession = async (
 
     const db = await openDB();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction([SESSIONS_STORE], 'readwrite');
+      const store = transaction.objectStore(SESSIONS_STORE);
       const request = store.add(newItem);
 
       request.onsuccess = () => resolve(newItem);
@@ -66,8 +78,8 @@ export const saveSession = async (
 export const updateSessionFeedback = async (id: string, tags: string[]): Promise<void> => {
   try {
     const db = await openDB();
-    const transaction = db.transaction([STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
+    const transaction = db.transaction([SESSIONS_STORE], 'readwrite');
+    const store = transaction.objectStore(SESSIONS_STORE);
 
     // Get, Update, Put
     const getReq = store.get(id);
@@ -88,8 +100,8 @@ export const getHistory = async (): Promise<HistoryItem[]> => {
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], 'readonly');
-      const store = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction([SESSIONS_STORE], 'readonly');
+      const store = transaction.objectStore(SESSIONS_STORE);
       const request = store.getAll();
 
       request.onsuccess = () => {
@@ -127,13 +139,128 @@ export const clearHistory = async (): Promise<void> => {
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction([SESSIONS_STORE], 'readwrite');
+      const store = transaction.objectStore(SESSIONS_STORE);
       const request = store.clear();
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   } catch (e) {
     console.error("Failed to clear history", e);
+  }
+};
+
+export const saveMarathonPlan = async (plan: MarathonPlan): Promise<void> => {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([PLANS_STORE], 'readwrite');
+      const store = transaction.objectStore(PLANS_STORE);
+      const request = store.put(plan);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (e) {
+    console.error("Failed to save marathon plan", e);
+  }
+};
+
+export const getLatestMarathonPlan = async (kidId: string): Promise<MarathonPlan | null> => {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([PLANS_STORE], 'readonly');
+      const store = transaction.objectStore(PLANS_STORE);
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        const plans = (request.result as MarathonPlan[])
+          .filter(plan => plan.kidId === kidId)
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        resolve(plans[0] || null);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } catch (e) {
+    console.error("Failed to load marathon plan", e);
+    return null;
+  }
+};
+
+export const updateMarathonMissionStatus = async (
+  planId: string,
+  missionId: string,
+  status: MarathonMissionStatus,
+  reflectionNote?: string
+): Promise<MarathonPlan | null> => {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([PLANS_STORE], 'readwrite');
+      const store = transaction.objectStore(PLANS_STORE);
+      const getReq = store.get(planId);
+
+      getReq.onsuccess = () => {
+        const plan = getReq.result as MarathonPlan;
+        if (!plan) {
+          resolve(null);
+          return;
+        }
+
+        const missions = plan.missions.map((mission) => {
+          if (mission.id !== missionId) return mission;
+          return { ...mission, status, reflectionNote };
+        });
+
+        const updated: MarathonPlan = {
+          ...plan,
+          missions,
+          updatedAt: Date.now()
+        };
+
+        const putReq = store.put(updated);
+        putReq.onsuccess = () => resolve(updated);
+        putReq.onerror = () => reject(putReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+    });
+  } catch (e) {
+    console.error("Failed to update marathon mission", e);
+    return null;
+  }
+};
+
+export const appendMarathonCheckIn = async (
+  planId: string,
+  checkIn: MarathonCheckIn
+): Promise<MarathonPlan | null> => {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([PLANS_STORE], 'readwrite');
+      const store = transaction.objectStore(PLANS_STORE);
+      const getReq = store.get(planId);
+
+      getReq.onsuccess = () => {
+        const plan = getReq.result as MarathonPlan;
+        if (!plan) {
+          resolve(null);
+          return;
+        }
+
+        const updated: MarathonPlan = {
+          ...plan,
+          checkInHistory: [checkIn, ...(plan.checkInHistory || [])].slice(0, 6),
+          updatedAt: Date.now()
+        };
+        const putReq = store.put(updated);
+        putReq.onsuccess = () => resolve(updated);
+        putReq.onerror = () => reject(putReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+    });
+  } catch (e) {
+    console.error("Failed to append marathon check-in", e);
+    return null;
   }
 };

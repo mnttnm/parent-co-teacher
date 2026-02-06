@@ -10,10 +10,28 @@ import { RevisionSession } from './components/RevisionSession';
 import { SmartLoader } from './components/SmartLoader';
 import { Confetti } from './components/Confetti';
 import { ScanButton } from './components/ScanButton'; // Ensure this is imported
+import { MarathonAgentPanel } from './components/MarathonAgentPanel';
 import { KIDS } from './constants';
-import { KidProfile, HomeworkAnalysis, GuidedSession, ChapterGuide, HistoryItem, RevisionQuiz, MicroLesson } from './types';
-import { analyzeHomeworkImage, generateParentGuide, generateChapterGuide, generateRevisionQuiz, generateMicroLesson } from './services/geminiService';
-import { saveSession, getHistory, updateSessionFeedback, getWeaknessStats } from './services/storageService';
+import { KidProfile, HomeworkAnalysis, GuidedSession, ChapterGuide, HistoryItem, RevisionQuiz, MicroLesson, MarathonPlan } from './types';
+import {
+  analyzeHomeworkImage,
+  generateParentGuide,
+  generateChapterGuide,
+  generateRevisionQuiz,
+  generateMicroLesson,
+  generateMarathonPlan,
+  runMarathonCheckIn
+} from './services/geminiService';
+import {
+  saveSession,
+  getHistory,
+  updateSessionFeedback,
+  getWeaknessStats,
+  getLatestMarathonPlan,
+  saveMarathonPlan,
+  updateMarathonMissionStatus,
+  appendMarathonCheckIn
+} from './services/storageService';
 
 type AppStatus = 'idle' | 'scanning' | 'analyzing' | 'choice' | 'generating' | 'active_homework' | 'active_chapter' | 'revision' | 'micro_lesson';
 type Tab = 'home' | 'library';
@@ -39,6 +57,9 @@ const App: React.FC = () => {
   const [expandedQuestionId, setExpandedQuestionId] = useState<number | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [dashboardStats, setDashboardStats] = useState<Record<string, number>>({});
+  const [marathonPlan, setMarathonPlan] = useState<MarathonPlan | null>(null);
+  const [isMarathonGenerating, setIsMarathonGenerating] = useState(false);
+  const [isAgentCheckingIn, setIsAgentCheckingIn] = useState(false);
 
   useEffect(() => {
     refreshData();
@@ -49,6 +70,8 @@ const App: React.FC = () => {
     setHistory(items);
     const stats = await getWeaknessStats(activeKid.id);
     setDashboardStats(stats);
+    const latestPlan = await getLatestMarathonPlan(activeKid.id);
+    setMarathonPlan(latestPlan);
   };
 
   // --- Handlers ---
@@ -165,6 +188,80 @@ const App: React.FC = () => {
     }
   };
 
+  const handleGenerateMarathonPlan = async () => {
+    setIsMarathonGenerating(true);
+    setStatus('generating');
+    try {
+      const kidHistory = history.filter(item => item.kidId === activeKid.id);
+      const plan = await generateMarathonPlan(activeKid, kidHistory, dashboardStats);
+      await saveMarathonPlan(plan);
+      setMarathonPlan(plan);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsMarathonGenerating(false);
+      setStatus('idle');
+      await refreshData();
+    }
+  };
+
+  const handleMissionToggle = async (missionId: string, nextDone: boolean) => {
+    if (!marathonPlan) return;
+    const updated = await updateMarathonMissionStatus(
+      marathonPlan.id,
+      missionId,
+      nextDone ? 'done' : 'pending'
+    );
+
+    if (updated) {
+      setMarathonPlan(updated);
+      const allDone = updated.missions.length > 0 && updated.missions.every(mission => mission.status === 'done');
+      if (allDone) {
+        setShowConfetti(true);
+        setTimeout(() => setShowConfetti(false), 2500);
+      }
+    }
+  };
+
+  const handleAgentCheckIn = async () => {
+    if (!marathonPlan) return;
+
+    setIsAgentCheckingIn(true);
+    try {
+      const checkIn = await runMarathonCheckIn(marathonPlan, activeKid, dashboardStats);
+
+      let updatedPlan: MarathonPlan = {
+        ...marathonPlan,
+        missions: marathonPlan.missions.map((mission) => {
+          const update = checkIn.missionUpdates.find(item => item.missionId === mission.id);
+          if (!update) return mission;
+          return {
+            ...mission,
+            status: mission.status === 'done' ? 'done' : 'adjusted',
+            parentAction: update.updatedParentAction,
+            childTask: update.updatedChildTask
+          };
+        }),
+        updatedAt: Date.now()
+      };
+
+      await saveMarathonPlan(updatedPlan);
+      updatedPlan = (await appendMarathonCheckIn(updatedPlan.id, checkIn)) || updatedPlan;
+      if (!updatedPlan.checkInHistory || updatedPlan.checkInHistory.length === 0) {
+        updatedPlan = {
+          ...updatedPlan,
+          checkInHistory: [checkIn, ...(updatedPlan.checkInHistory || [])].slice(0, 6)
+        };
+        await saveMarathonPlan(updatedPlan);
+      }
+      setMarathonPlan(updatedPlan);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsAgentCheckingIn(false);
+    }
+  };
+
   const handleWeaknessFeedback = async (tags: string[]) => {
     if (currentSessionId) {
       await updateSessionFeedback(currentSessionId, tags);
@@ -254,6 +351,18 @@ const App: React.FC = () => {
              Main aapko step-by-step guide karunga.
           </p>
         </div>
+
+        <MarathonAgentPanel
+          kid={activeKid}
+          history={history}
+          weaknessStats={dashboardStats}
+          plan={marathonPlan}
+          isGenerating={isMarathonGenerating}
+          isCheckInRunning={isAgentCheckingIn}
+          onGeneratePlan={handleGenerateMarathonPlan}
+          onToggleMission={handleMissionToggle}
+          onRunCheckIn={handleAgentCheckIn}
+        />
 
         {/* Analytics */}
         <AnalyticsDashboard 

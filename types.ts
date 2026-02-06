@@ -106,3 +106,61 @@ export interface MicroLesson {
     visualPrompt?: string;
   }[];
 }
+
+export type MarathonMissionStatus = 'pending' | 'done' | 'adjusted';
+
+export interface MarathonMission {
+  id: string;
+  dayNumber: number;
+  focusSkill: string;
+  objective: string;
+  parentAction: string;
+  childTask: string;
+  evidenceToCapture: string;
+  fallbackPlan: string;
+  estimatedMinutes: number;
+  status: MarathonMissionStatus;
+  reflectionNote?: string;
+}
+
+export interface MarathonSignalPack {
+  topWeaknesses: string[];
+  recentTopics: string[];
+  sessionsAnalyzed: number;
+}
+
+export interface MarathonQualityReport {
+  initialScore: number;
+  finalScore: number;
+  critique: string;
+  verificationChecklist: string[];
+}
+
+export interface MarathonMissionUpdate {
+  missionId: string;
+  reason: string;
+  updatedParentAction: string;
+  updatedChildTask: string;
+}
+
+export interface MarathonCheckIn {
+  timestamp: number;
+  summary: string;
+  nextAction: string;
+  motivationScript: string;
+  missionUpdates: MarathonMissionUpdate[];
+}
+
+export interface MarathonPlan {
+  id: string;
+  kidId: string;
+  createdAt: number;
+  updatedAt: number;
+  planTitle: string;
+  strategy: string;
+  durationDays: number;
+  missions: MarathonMission[];
+  signals: MarathonSignalPack;
+  qualityReport: MarathonQualityReport;
+  checkInHistory: MarathonCheckIn[];
+}
