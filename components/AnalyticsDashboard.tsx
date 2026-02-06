@@ -25,7 +25,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   )).slice(0, 2);
 
   const hasStats = Object.keys(stats).length > 0;
-  const topWeakness = Object.entries(stats).sort((a,b) => b[1] - a[1])[0];
+  // Fix: Added explicit type casting for arithmetic operation to ensure TS recognizes counts as numbers
+  const topWeakness = Object.entries(stats).sort((a, b) => (b[1] as number) - (a[1] as number))[0];
 
   const handleShare = () => {
     const text = `Hi! Today ${activeKid.name} studied ${recentTopics[0] || 'Homework'}. We focused on ${topWeakness ? topWeakness[0] : 'Learning'}. Check the app for details!`;
