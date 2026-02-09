@@ -28,10 +28,21 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ text, className = "", 
     };
   }, []);
 
+  useEffect(() => {
+    if (sourceRef.current) {
+      sourceRef.current.stop();
+      sourceRef.current = null;
+    }
+    audioBufferRef.current = null;
+    setIsPlaying(false);
+    setError(false);
+  }, [text]);
+
   const handlePlay = async () => {
     if (isPlaying) {
       if (sourceRef.current) {
         sourceRef.current.stop();
+        sourceRef.current = null;
         setIsPlaying(false);
       }
       return;
@@ -59,7 +70,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ text, className = "", 
       const source = audioContextRef.current.createBufferSource();
       source.buffer = audioBufferRef.current;
       source.connect(audioContextRef.current.destination);
-      source.onended = () => setIsPlaying(false);
+      source.onended = () => {
+        sourceRef.current = null;
+        setIsPlaying(false);
+      };
       source.start();
       
       sourceRef.current = source;
@@ -75,10 +89,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ text, className = "", 
   return (
     <button
       onClick={handlePlay}
-      disabled={isLoading || error}
+      disabled={isLoading}
       className={`flex items-center space-x-2 text-sm font-semibold rounded-full px-4 py-2 transition-all active:scale-95 ${
         error 
-         ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+         ? 'bg-gray-100 text-gray-400 border border-gray-200'
          : isPlaying 
           ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md border-transparent' 
           : 'bg-white text-indigo-700 border border-indigo-100 hover:bg-indigo-50 shadow-sm'

@@ -4,6 +4,7 @@ import {
   HomeworkAnalysis,
   GuidedSession,
   KidProfile,
+  ParentLanguage,
   ChapterGuide,
   RevisionQuiz,
   MicroLesson,
@@ -11,7 +12,8 @@ import {
   MarathonPlan,
   MarathonMission,
   MarathonCheckIn,
-  MarathonMissionUpdate
+  MarathonMissionUpdate,
+  StoredImage
 } from '../types';
 import { MOCK_ANALYSIS, MOCK_SESSION, MOCK_CHAPTER_GUIDE } from '../constants';
 
@@ -53,6 +55,28 @@ const safeParseJson = <T>(text: string | undefined): T | null => {
 
 const normalizeWeakness = (tag: string): string => WEAKNESS_LABELS[tag] || tag;
 
+const getPrimaryLanguageLabel = (language: ParentLanguage): string =>
+  language === 'english' ? 'clear conversational English' : 'natural Hinglish (Hindi in English script)';
+
+const getSecondaryLanguageLabel = (language: ParentLanguage): string =>
+  language === 'english' ? 'natural Hinglish (Hindi in English script)' : 'clear conversational English';
+
+const getLanguageRules = (language: ParentLanguage): string => {
+  if (language === 'english') {
+    return `
+      Primary parent language: clear conversational English.
+      Secondary support language: natural Hinglish (Hindi in English script).
+      Keep the tone practical, everyday, and easy to speak aloud.
+    `;
+  }
+
+  return `
+    Primary parent language: natural Hinglish (Hindi in English script).
+    Use code-mixed everyday speech (for example, "line mein khade ho jao"), not literal textbook translation.
+    Secondary support language: clear conversational English.
+  `;
+};
+
 const buildSignals = (history: HistoryItem[], weaknessStats: Record<string, number>) => {
   const recentTopics = Array.from(new Set(history.map((item) => item.topic))).slice(0, 4);
   const topWeaknesses = Object.entries(weaknessStats)
@@ -78,34 +102,68 @@ const summarizeHistoryForPrompt = (history: HistoryItem[]): string => {
   }).join('\n');
 };
 
-const normalizeMission = (mission: MarathonDraftMission, index: number): MarathonMission => {
+const normalizeMission = (
+  mission: MarathonDraftMission,
+  index: number,
+  parentLanguage: ParentLanguage
+): MarathonMission => {
   const missionId = `m-${index + 1}`;
   return {
     id: missionId,
     dayNumber: mission.dayNumber || index + 1,
     focusSkill: mission.focusSkill || 'Comprehension',
-    objective: mission.objective || 'Build confidence through one focused practice loop.',
-    parentAction: mission.parentAction || 'Read the concept aloud and ask one open-ended question.',
-    childTask: mission.childTask || 'Explain the concept in simple words with one example.',
-    evidenceToCapture: mission.evidenceToCapture || 'One spoken response from the child and one written sentence.',
-    fallbackPlan: mission.fallbackPlan || 'Retry with easier examples and a 2-minute recap.',
+    objective: mission.objective || (
+      parentLanguage === 'english'
+        ? 'Build confidence through one focused practice loop.'
+        : 'Ek focused practice loop se confidence build karo.'
+    ),
+    parentAction: mission.parentAction || (
+      parentLanguage === 'english'
+        ? 'Read the concept aloud and ask one open-ended question.'
+        : 'Concept ko zor se padho aur ek open-ended sawal pucho.'
+    ),
+    childTask: mission.childTask || (
+      parentLanguage === 'english'
+        ? 'Explain the concept in simple words with one example.'
+        : 'Concept ko simple words mein ek example ke saath samjhao.'
+    ),
+    evidenceToCapture: mission.evidenceToCapture || (
+      parentLanguage === 'english'
+        ? 'One spoken response from the child and one written sentence.'
+        : 'Child ka 1 spoken response aur 1 written sentence.'
+    ),
+    fallbackPlan: mission.fallbackPlan || (
+      parentLanguage === 'english'
+        ? 'Retry with easier examples and a 2-minute recap.'
+        : 'Easy examples ke saath retry karo aur 2-minute recap karo.'
+    ),
     estimatedMinutes: Math.max(5, Math.min(25, mission.estimatedMinutes || 12)),
     status: 'pending'
   };
 };
 
-const ensureDraftQuality = (draft: MarathonDraftPlan): MarathonDraftPlan => {
+const ensureDraftQuality = (draft: MarathonDraftPlan, parentLanguage: ParentLanguage): MarathonDraftPlan => {
   const missionPool = draft.missions || [];
   const filled = missionPool.length >= 5 ? missionPool : [
     ...missionPool,
     ...Array.from({ length: 5 - missionPool.length }).map((_, idx) => ({
       dayNumber: missionPool.length + idx + 1,
       focusSkill: 'Comprehension',
-      objective: 'Practice one concept from today in a parent-guided conversation.',
-      parentAction: 'Use one real-life example and ask the child to restate the answer.',
-      childTask: 'Solve one question and explain the reasoning aloud.',
-      evidenceToCapture: 'Record one correct explanation and one corrected mistake.',
-      fallbackPlan: 'Switch to a simpler question and do a guided retry.',
+      objective: parentLanguage === 'english'
+        ? 'Practice one concept from today in a parent-guided conversation.'
+        : 'Aaj ke ek concept ko parent-guided conversation mein practice karo.',
+      parentAction: parentLanguage === 'english'
+        ? 'Use one real-life example and ask the child to restate the answer.'
+        : 'Ek real-life example use karo aur child se answer ko restate karvao.',
+      childTask: parentLanguage === 'english'
+        ? 'Solve one question and explain the reasoning aloud.'
+        : 'Ek question solve karo aur reasoning zor se explain karo.',
+      evidenceToCapture: parentLanguage === 'english'
+        ? 'Record one correct explanation and one corrected mistake.'
+        : 'Ek correct explanation aur ek corrected mistake note karo.',
+      fallbackPlan: parentLanguage === 'english'
+        ? 'Switch to a simpler question and do a guided retry.'
+        : 'Simple question par switch karo aur guided retry karo.',
       estimatedMinutes: 12
     }))
   ];
@@ -176,12 +234,12 @@ const scoreDraft = (
  * Step 1: Analyze the images to get structured data
  * Using gemini-3-pro-preview for best multimodal reasoning.
  */
-export const analyzeHomeworkImage = async (base64Images: string[]): Promise<HomeworkAnalysis> => {
+export const analyzeHomeworkImage = async (images: StoredImage[]): Promise<HomeworkAnalysis> => {
   try {
-    const imageParts = base64Images.map(img => ({
+    const imageParts = images.map((image) => ({
       inlineData: {
-        mimeType: 'image/jpeg',
-        data: img
+        mimeType: image.mimeType || 'image/jpeg',
+        data: image.data
       }
     }));
 
@@ -240,15 +298,16 @@ export const analyzeHomeworkImage = async (base64Images: string[]): Promise<Home
  * Enforces Hinglish for all parent scripts and strict JSON arrays.
  */
 export const generateParentGuide = async (
-  base64Images: string[],
+  images: StoredImage[],
   analysis: HomeworkAnalysis, 
-  kid: KidProfile
+  kid: KidProfile,
+  parentLanguage: ParentLanguage
 ): Promise<GuidedSession> => {
   try {
-    const imageParts = base64Images.map(img => ({
+    const imageParts = images.map((image) => ({
       inlineData: {
-        mimeType: 'image/jpeg',
-        data: img
+        mimeType: image.mimeType || 'image/jpeg',
+        data: image.data
       }
     }));
 
@@ -266,12 +325,16 @@ export const generateParentGuide = async (
          - EXTRACT these even if they are mixed with story text.
       
       2. **LANGUAGE RULES (CRITICAL):**
-         - The parent acts as a co-teacher but has limited English.
-         - **parentContextOriginal**: EXPLAIN the concept in **Hinglish** (Hindi in English script). 
-           Example: "Is sawal mein humein ye pata lagana hai ki..."
-         - **speakScript**: Write exactly what the parent should SAY to the child in **Hinglish**.
-           Example: "${kid.name} beta, chalo dekhte hain ki is kahani mein kya hua."
-         - **explanation**: For each question, provide a hint in **Hinglish**.
+         ${getLanguageRules(parentLanguage)}
+         - **parentContextOriginal**: Must be in PRIMARY language (${getPrimaryLanguageLabel(parentLanguage)}).
+         - **parentContextEnglish**: Must be in SECONDARY language (${getSecondaryLanguageLabel(parentLanguage)}).
+         - **speakScript**: Write exactly what the parent should SAY to the child in PRIMARY language.
+         - **explanation**: For each question, provide a hint in PRIMARY language.
+         - Keep wording naturally spoken, not literal translation.
+
+      2.1 **QUESTION LANGUAGE RULE:**
+         - **questionsList.text**, **answer**, and **options** should be in PRIMARY language unless a textbook line must be quoted exactly.
+         - If textbook is in English and PRIMARY is Hinglish, keep it colloquial and parent-friendly.
 
       3. **DATA STRUCTURE RULES:**
          - **questionsList**: Must be a JSON Array. Do NOT merge questions into a paragraph.
@@ -294,9 +357,9 @@ export const generateParentGuide = async (
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            parentContextOriginal: { type: Type.STRING, description: "Hinglish explanation" },
-            parentContextEnglish: { type: Type.STRING, description: "English explanation" },
-            speakScript: { type: Type.STRING, description: "Hinglish script to say to child" },
+            parentContextOriginal: { type: Type.STRING, description: "Primary language explanation for parent" },
+            parentContextEnglish: { type: Type.STRING, description: "Secondary language explanation for parent" },
+            speakScript: { type: Type.STRING, description: "Primary language script to say to child" },
             guidedQuestions: {
               type: Type.ARRAY,
               items: { type: Type.STRING }
@@ -323,7 +386,7 @@ export const generateParentGuide = async (
                   type: { type: Type.STRING, enum: ['subjective', 'mcq', 'fill_in_blank'] },
                   options: { type: Type.ARRAY, items: { type: Type.STRING } },
                   answer: { type: Type.STRING },
-                  explanation: { type: Type.STRING, description: "Hinglish hint for the parent" }
+                  explanation: { type: Type.STRING, description: "Primary language hint for the parent" }
                 },
                 required: ['id', 'text', 'type', 'answer', 'explanation']
               }
@@ -352,15 +415,16 @@ export const generateParentGuide = async (
  * STRICTLY EXCLUDES EXERCISES from the text chunks.
  */
 export const generateChapterGuide = async (
-  base64Images: string[],
+  images: StoredImage[],
   analysis: HomeworkAnalysis, 
-  kid: KidProfile
+  kid: KidProfile,
+  parentLanguage: ParentLanguage
 ): Promise<ChapterGuide> => {
   try {
-    const imageParts = base64Images.map(img => ({
+    const imageParts = images.map((image) => ({
       inlineData: {
-        mimeType: 'image/jpeg',
-        data: img
+        mimeType: image.mimeType || 'image/jpeg',
+        data: image.data
       }
     }));
 
@@ -381,12 +445,13 @@ export const generateChapterGuide = async (
          - Do not treat Q&A or Vocabulary lists as "Sub-Chapters". If the page ends with exercises, IGNORE THEM for this specific task.
       
       5. **LANGUAGE RULES:**
-         - **parentExplanation**: Explain to the parent in **Hinglish**.
-         - **teachingGuide**: Guide the parent on how to teach in **Hinglish**.
+         ${getLanguageRules(parentLanguage)}
+         - **parentExplanation**: Explain to the parent in PRIMARY language (${getPrimaryLanguageLabel(parentLanguage)}).
+         - **teachingGuide**: Guide the parent on how to teach in PRIMARY language.
            Example: "Pehle ${kid.name} se poocho ki usne kabhi..."
-         - **kidExplanation**: The script the parent SAYS to the child. Must be **Hinglish**.
+         - **kidExplanation**: The script the parent SAYS to the child. Must be in PRIMARY language.
            Example: "${kid.name}, socho agar tumhare paas ek..."
-         - **simplifiedEnglish**: Simple English summary (for listening practice).
+         - **simplifiedEnglish**: SECONDARY language summary (${getSecondaryLanguageLabel(parentLanguage)}).
 
       Output JSON.
     `;
@@ -446,7 +511,8 @@ export const generateChapterGuide = async (
  */
 export const generateRevisionQuiz = async (
   topic: string,
-  kid: KidProfile
+  kid: KidProfile,
+  parentLanguage: ParentLanguage
 ): Promise<RevisionQuiz> => {
   try {
     const prompt = `
@@ -456,13 +522,14 @@ export const generateRevisionQuiz = async (
       Requirements:
       1. Generate 2 Multiple Choice Questions (MCQ).
       2. Generate 1 Flashcard Question (simple concept recall).
-      3. Language: English for the question, but Provide **Hinglish** explanations for the parent to help.
+      3. Use PRIMARY language (${getPrimaryLanguageLabel(parentLanguage)}) for question, options, and explanation.
+      4. Keep phrasing naturally spoken by a parent and child.
       
       Output JSON.
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -494,8 +561,53 @@ export const generateRevisionQuiz = async (
     const text = response.text;
     return JSON.parse(text) as RevisionQuiz;
   } catch (error) {
-    console.error("Quiz Gen Error", error);
-    throw error;
+    console.error("Quiz Gen Error, using fallback quiz:", error);
+    return {
+      topic,
+      questions: [
+        {
+          id: 1,
+          question: parentLanguage === 'english'
+            ? `What is the main idea of "${topic}"?`
+            : `"${topic}" ka main idea kya hai?`,
+          type: 'mcq',
+          options: parentLanguage === 'english'
+            ? ['Main concept', 'Random detail', 'Unrelated fact']
+            : ['Main concept', 'Random detail', 'Unrelated fact'],
+          correctAnswer: 'Main concept',
+          explanation: parentLanguage === 'english'
+            ? `Ask ${kid.name} to explain the chapter's core idea in one line.`
+            : `${kid.name} ko bolo chapter ka core idea ek line mein bataye.`
+        },
+        {
+          id: 2,
+          question: parentLanguage === 'english'
+            ? `Which statement best supports the lesson from "${topic}"?`
+            : `"${topic}" se kaunsa statement lesson ko best support karta hai?`,
+          type: 'mcq',
+          options: parentLanguage === 'english'
+            ? ['Evidence from text', 'Guess without reading', 'Ignore examples']
+            : ['Text se evidence', 'Bina padhe guess', 'Examples ignore karo'],
+          correctAnswer: 'Evidence from text',
+          explanation: parentLanguage === 'english'
+            ? 'While answering, ask for one proof line from the text.'
+            : 'Answer dete waqt text se ek proof line lena zaroori hai.'
+        },
+        {
+          id: 3,
+          question: parentLanguage === 'english'
+            ? `Explain "${topic}" in your own words.`
+            : `"${topic}" ko apne words mein samjhao.`,
+          type: 'flashcard',
+          correctAnswer: parentLanguage === 'english'
+            ? 'A short summary using one example from the lesson.'
+            : 'Lesson ka short summary do, saath mein ek example.',
+          explanation: parentLanguage === 'english'
+            ? 'Explaining in your own words improves retention.'
+            : 'Apne words mein samjhana retention strong banata hai.'
+        }
+      ]
+    };
   }
 };
 
@@ -506,7 +618,8 @@ export const generateRevisionQuiz = async (
 export const generateMicroLesson = async (
   topic: string,
   weakness: string,
-  kid: KidProfile
+  kid: KidProfile,
+  parentLanguage: ParentLanguage
 ): Promise<MicroLesson> => {
   try {
     const prompt = `
@@ -515,12 +628,13 @@ export const generateMicroLesson = async (
       Weakness Tag: "${weakness}" (e.g., Vocabulary, Concept).
       Child: ${kid.name}, ${kid.grade}.
       
-      Output 3 simple steps for the parent to teach this concept effectively in Hinglish.
+      ${getLanguageRules(parentLanguage)}
+      Output 3 simple steps for the parent to teach this concept effectively in PRIMARY language.
       Include a visual prompt suggestion for each step if needed.
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -549,15 +663,45 @@ export const generateMicroLesson = async (
     
     return JSON.parse(response.text) as MicroLesson;
   } catch (error) {
-    console.error("Micro Lesson Error", error);
-    throw error;
+    console.error("Micro Lesson Error, using fallback lesson:", error);
+    return {
+      title: `Quick Fix: ${weakness}`,
+      focusArea: weakness,
+      steps: [
+        {
+          text: parentLanguage === 'english'
+            ? `Re-read one key part from "${topic}" and underline the confusing part.`
+            : `"${topic}" ka ek important part dobara padho aur confusing line ko underline karo.`,
+          speakScript: parentLanguage === 'english'
+            ? `${kid.name}, first identify the confusing line.`
+            : `${kid.name}, pehle confusing line identify karte hain.`
+        },
+        {
+          text: parentLanguage === 'english'
+            ? 'Explain that line in simpler words with one real-life example.'
+            : 'Us line ko simple words mein samjhao aur ek real-life example do.',
+          speakScript: parentLanguage === 'english'
+            ? 'Now explain it in simple words, then give one example.'
+            : 'Ab isko simple words mein samjhao, phir ek example do.'
+        },
+        {
+          text: parentLanguage === 'english'
+            ? 'Ask one check question and let the child answer independently.'
+            : 'Ek check question pucho aur child ko khud answer dene do.',
+          speakScript: parentLanguage === 'english'
+            ? 'Now you answer on your own, I will only guide.'
+            : 'Ab tum khud answer do, main sirf guide karunga.'
+        }
+      ]
+    };
   }
 };
 
 export const generateMarathonPlan = async (
   kid: KidProfile,
   history: HistoryItem[],
-  weaknessStats: Record<string, number>
+  weaknessStats: Record<string, number>,
+  parentLanguage: ParentLanguage
 ): Promise<MarathonPlan> => {
   const signals = buildSignals(history, weaknessStats);
   const historySummary = summarizeHistoryForPrompt(history);
@@ -582,11 +726,12 @@ export const generateMarathonPlan = async (
     3. Keep actions practical for low-literacy parents.
     4. Maintain progression: warm-up -> core concept -> recall -> exam readiness.
     5. Use concise text and avoid generic advice.
+    6. Write objective, parentAction, childTask, evidenceToCapture, and fallbackPlan in PRIMARY language (${getPrimaryLanguageLabel(parentLanguage)}).
   `;
 
   try {
     const draftResponse = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: basePrompt,
       config: {
         responseMimeType: "application/json",
@@ -620,12 +765,14 @@ export const generateMarathonPlan = async (
     });
 
     const draftParsed = safeParseJson<MarathonDraftPlan>(draftResponse.text) || {
-      planTitle: '7-Day Learning Marathon',
-      strategy: 'Short, evidence-based daily loops for parent-guided practice.',
+      planTitle: parentLanguage === 'english' ? '7-Day Learning Marathon' : '7-Day Learning Marathon',
+      strategy: parentLanguage === 'english'
+        ? 'Short, evidence-based daily loops for parent-guided practice.'
+        : 'Short, evidence-based daily loops for parent-guided practice.',
       durationDays: 7,
       missions: []
     };
-    const draft = ensureDraftQuality(draftParsed);
+    const draft = ensureDraftQuality(draftParsed, parentLanguage);
     const initialEvaluation = scoreDraft(draft, signals.topWeaknesses);
 
     const refinePrompt = `
@@ -639,7 +786,7 @@ export const generateMarathonPlan = async (
     `;
 
     const refinedResponse = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: refinePrompt,
       config: {
         responseMimeType: "application/json",
@@ -673,9 +820,9 @@ export const generateMarathonPlan = async (
     });
 
     const refinedParsed = safeParseJson<MarathonDraftPlan>(refinedResponse.text);
-    const finalDraft = ensureDraftQuality(refinedParsed || draft);
+    const finalDraft = ensureDraftQuality(refinedParsed || draft, parentLanguage);
     const finalEvaluation = scoreDraft(finalDraft, signals.topWeaknesses);
-    const missions = finalDraft.missions.map((mission, index) => normalizeMission(mission, index));
+    const missions = finalDraft.missions.map((mission, index) => normalizeMission(mission, index, parentLanguage));
 
     return {
       id: `plan-${now}`,
@@ -702,11 +849,21 @@ export const generateMarathonPlan = async (
       id: `m-${idx + 1}`,
       dayNumber: idx + 1,
       focusSkill: signals.topWeaknesses[idx % signals.topWeaknesses.length] || 'Comprehension',
-      objective: `Reinforce ${signals.recentTopics[0] || 'current chapter'} using one short guided loop.`,
-      parentAction: 'Read one question aloud, pause, and ask the child to explain in their own words.',
-      childTask: 'Answer one question and give one real-life example.',
-      evidenceToCapture: '1 spoken explanation + 1 written sentence.',
-      fallbackPlan: 'If stuck, simplify language and retry with a worked example.',
+      objective: parentLanguage === 'english'
+        ? `Reinforce ${signals.recentTopics[0] || 'current chapter'} using one short guided loop.`
+        : `${signals.recentTopics[0] || 'current chapter'} ko ek short guided loop se reinforce karo.`,
+      parentAction: parentLanguage === 'english'
+        ? 'Read one question aloud, pause, and ask the child to explain in their own words.'
+        : 'Ek question zor se padho, pause karo, phir child ko apne words mein samjhane bolo.',
+      childTask: parentLanguage === 'english'
+        ? 'Answer one question and give one real-life example.'
+        : 'Ek question ka answer do aur ek real-life example do.',
+      evidenceToCapture: parentLanguage === 'english'
+        ? '1 spoken explanation + 1 written sentence.'
+        : '1 spoken explanation + 1 written sentence.',
+      fallbackPlan: parentLanguage === 'english'
+        ? 'If stuck, simplify language and retry with a worked example.'
+        : 'Agar atko, language aur simple karo aur worked example ke saath retry karo.',
       estimatedMinutes: 12,
       status: 'pending'
     }));
@@ -716,8 +873,10 @@ export const generateMarathonPlan = async (
       kidId: kid.id,
       createdAt: now,
       updatedAt: now,
-      planTitle: 'Fallback Learning Marathon',
-      strategy: 'Steady daily repetition with evidence capture and simpler retries.',
+      planTitle: parentLanguage === 'english' ? 'Fallback Learning Marathon' : 'Fallback Learning Marathon',
+      strategy: parentLanguage === 'english'
+        ? 'Steady daily repetition with evidence capture and simpler retries.'
+        : 'Steady daily repetition with evidence capture and simpler retries.',
       durationDays: fallbackMissions.length,
       missions: fallbackMissions,
       signals,
@@ -735,7 +894,8 @@ export const generateMarathonPlan = async (
 export const runMarathonCheckIn = async (
   plan: MarathonPlan,
   kid: KidProfile,
-  weaknessStats: Record<string, number>
+  weaknessStats: Record<string, number>,
+  parentLanguage: ParentLanguage
 ): Promise<MarathonCheckIn> => {
   const completed = plan.missions.filter(m => m.status === 'done').length;
   const pending = plan.missions.filter(m => m.status !== 'done');
@@ -747,7 +907,7 @@ export const runMarathonCheckIn = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: `
         You are checking a long-running autonomous plan.
         Child: ${kid.name}, ${kid.grade}.
@@ -759,7 +919,7 @@ export const runMarathonCheckIn = async (
         Output a compact check-in with:
         1) summary
         2) nextAction
-        3) motivationScript in Hinglish
+        3) motivationScript in PRIMARY language (${getPrimaryLanguageLabel(parentLanguage)})
         4) optional missionUpdates for pending missions only.
       `,
       config: {
@@ -812,9 +972,17 @@ export const runMarathonCheckIn = async (
     console.error("Marathon check-in failed, using fallback:", error);
     return {
       timestamp: Date.now(),
-      summary: `${completed}/${plan.missions.length} missions complete. Continue with the next pending mission.`,
-      nextAction: pending[0] ? `Do mission ${pending[0].dayNumber}: ${pending[0].objective}` : 'Plan is complete.',
-      motivationScript: `${kid.name} ke saath 10 minute ka focused revision karo. Aaj consistency sabse important hai.`,
+      summary: parentLanguage === 'english'
+        ? `${completed}/${plan.missions.length} missions complete. Continue with the next pending mission.`
+        : `${completed}/${plan.missions.length} missions complete. Next pending mission continue karo.`,
+      nextAction: pending[0]
+        ? (parentLanguage === 'english'
+          ? `Do mission ${pending[0].dayNumber}: ${pending[0].objective}`
+          : `Mission ${pending[0].dayNumber} karo: ${pending[0].objective}`)
+        : (parentLanguage === 'english' ? 'Plan is complete.' : 'Plan complete ho gaya.'),
+      motivationScript: parentLanguage === 'english'
+        ? `Do a focused 10-minute revision with ${kid.name}. Consistency matters most today.`
+        : `${kid.name} ke saath 10 minute focused revision karo. Aaj consistency sabse important hai.`,
       missionUpdates: []
     };
   }
@@ -831,7 +999,7 @@ export const generateSpeech = async (text: string): Promise<string> => {
     console.log("🔊 Generating TTS for:", safeText.substring(0, 50) + "...");
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
+      model: "gemini-2.5-pro-preview-tts",
       contents: [{ parts: [{ text: safeText }] }],
       config: {
         responseModalities: [Modality.AUDIO],
@@ -858,7 +1026,7 @@ export const generateSpeech = async (text: string): Promise<string> => {
 export const generateVisualCue = async (prompt: string): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: 'gemini-3-pro-image-preview',
       contents: {
         parts: [
           {

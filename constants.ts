@@ -10,6 +10,7 @@ export const KIDS: KidProfile[] = [
     subject: 'English',
     avatarColor: 'bg-pink-500',
     schoolType: 'English Medium',
+    preferredLanguage: 'hinglish',
   },
   {
     id: 'kid-2',
@@ -18,6 +19,7 @@ export const KIDS: KidProfile[] = [
     subject: 'Chemistry',
     avatarColor: 'bg-blue-500',
     schoolType: 'CBSE',
+    preferredLanguage: 'english',
   },
 ];
 
@@ -79,19 +81,19 @@ export const MOCK_CHAPTER_GUIDE: ChapterGuide = {
       id: 1,
       title: "The Sick Mother",
       originalText: "Saeeda's mother had been ailing for a long time - fever, cough, body-ache... She was denied healthy food, sunshine, and fresh air.",
-      parentExplanation: "Saeeda's mom is very sick. The old doctors told her NOT to go in the sun, which was wrong.",
-      teachingGuide: "Explain that sometimes we need nature (sun/air) to get better, not just medicine.",
+      parentExplanation: "Saeeda ki mom kaafi time se bimar hai. Purane doctors ne unhe dhoop se door rakha, jo galat advice thi.",
+      teachingGuide: "Parent ko bolo ki nature (dhoop, fresh air) healing mein help karti hai, sirf medicine se kaam nahi chalta.",
       simplifiedEnglish: "Saeeda's mommy was sick for many days. She stayed in a dark room.",
-      kidExplanation: "Imagine if your mom had a fever and stayed in a dark room all day. Sad, right? That is Saeeda's mom."
+      kidExplanation: "Socho agar tumhari mom ko fever ho aur woh poora din dark room mein rahein. Saeeda ki mom ke saath yahi hua."
     },
     {
       id: 2,
       title: "The Bargain with Sunrays",
       originalText: "Saeeda made a pact with sunrays to come the next morning.",
-      parentExplanation: "Saeeda talks to the sunrays like friends. She asks them to help her mom.",
-      teachingGuide: "Ask Riya if she talks to nature (trees, birds, sun).",
+      parentExplanation: "Saeeda sunrays se doston ki tarah baat karti hai aur apni mom ki help maangti hai.",
+      teachingGuide: "Riya se pucho ki kya woh kabhi nature se baat karti hai - jaise birds, trees ya sun.",
       simplifiedEnglish: "Saeeda asked the Sun: 'Please come tomorrow to help my mommy!'",
-      kidExplanation: "Saeeda told the sun: 'Please come tomorrow with heat so my mom gets better! Don't take a holiday!'"
+      kidExplanation: "Saeeda ne sun se bola: kal zaroor aana, meri mom ko thodi garmi chahiye taaki woh better feel karein."
     }
   ]
 };

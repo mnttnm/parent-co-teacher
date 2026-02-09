@@ -6,7 +6,8 @@ import {
   ChapterGuide,
   MarathonPlan,
   MarathonMissionStatus,
-  MarathonCheckIn
+  MarathonCheckIn,
+  StoredImage
 } from '../types';
 
 const DB_NAME = 'ParentTeacherDB';
@@ -44,7 +45,7 @@ export const saveSession = async (
   analysis: HomeworkAnalysis,
   type: 'chapter' | 'homework',
   data: ChapterGuide | GuidedSession,
-  images: string[]
+  images: StoredImage[]
 ): Promise<HistoryItem | null> => {
   try {
     const newItem: HistoryItem = {
@@ -78,19 +79,27 @@ export const saveSession = async (
 export const updateSessionFeedback = async (id: string, tags: string[]): Promise<void> => {
   try {
     const db = await openDB();
-    const transaction = db.transaction([SESSIONS_STORE], 'readwrite');
-    const store = transaction.objectStore(SESSIONS_STORE);
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([SESSIONS_STORE], 'readwrite');
+      const store = transaction.objectStore(SESSIONS_STORE);
+      const getReq = store.get(id);
 
-    // Get, Update, Put
-    const getReq = store.get(id);
-    
-    getReq.onsuccess = () => {
-      const data = getReq.result as HistoryItem;
-      if (data) {
+      getReq.onsuccess = () => {
+        const data = getReq.result as HistoryItem;
+        if (!data) {
+          resolve();
+          return;
+        }
+
         data.feedbackTags = tags;
-        store.put(data);
-      }
-    };
+        const putReq = store.put(data);
+        putReq.onsuccess = () => resolve();
+        putReq.onerror = () => reject(putReq.error);
+      };
+
+      getReq.onerror = () => reject(getReq.error);
+      transaction.onerror = () => reject(transaction.error);
+    });
   } catch (e) {
     console.error("Failed to update feedback", e);
   }

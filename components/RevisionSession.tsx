@@ -1,14 +1,15 @@
 
 import React, { useState } from 'react';
-import { RevisionQuiz } from '../types';
+import { ParentLanguage, RevisionQuiz } from '../types';
 import { AudioPlayer } from './AudioPlayer';
 
 interface RevisionSessionProps {
   quiz: RevisionQuiz;
   onClose: () => void;
+  parentLanguage: ParentLanguage;
 }
 
-export const RevisionSession: React.FC<RevisionSessionProps> = ({ quiz, onClose }) => {
+export const RevisionSession: React.FC<RevisionSessionProps> = ({ quiz, onClose, parentLanguage }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [score, setScore] = useState(0);
@@ -109,7 +110,7 @@ export const RevisionSession: React.FC<RevisionSessionProps> = ({ quiz, onClose 
             <h4 className="font-bold text-indigo-900 mb-2">Answer & Explanation</h4>
             <p className="text-gray-800 mb-2 font-medium">{question.correctAnswer}</p>
             <p className="text-sm text-gray-600 mb-3">{question.explanation}</p>
-            <AudioPlayer text={question.explanation} label="Explain in Hinglish" className="text-xs scale-90 origin-left" />
+            <AudioPlayer text={question.explanation} label={parentLanguage === 'english' ? 'Explain (English)' : 'Explain (Hinglish)'} className="text-xs scale-90 origin-left" />
             
             <button 
               onClick={handleNext}

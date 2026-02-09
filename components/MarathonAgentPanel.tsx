@@ -25,7 +25,8 @@ export const MarathonAgentPanel: React.FC<MarathonAgentPanelProps> = ({
   onRunCheckIn
 }) => {
   const kidHistory = history.filter(item => item.kidId === kid.id);
-  const topWeakness = Object.entries(weaknessStats).sort((a, b) => b[1] - a[1])[0];
+  const topWeakness = Object.entries(weaknessStats)
+    .sort((a, b) => (b[1] as number) - (a[1] as number))[0];
 
   if (!plan) {
     return (

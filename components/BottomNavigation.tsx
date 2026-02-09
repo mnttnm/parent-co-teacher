@@ -1,12 +1,13 @@
 
 import React, { useRef } from 'react';
+import { StoredImage } from '../types';
 
 type Tab = 'home' | 'library';
 
 interface BottomNavigationProps {
   activeTab: Tab;
   onTabChange: (tab: Tab) => void;
-  onScanSelected: (base64: string) => void;
+  onScanSelected: (image: StoredImage) => void;
   isScanning: boolean;
 }
 
@@ -25,7 +26,10 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
       reader.onloadend = () => {
         const base64String = reader.result as string;
         const rawBase64 = base64String.split(',')[1]; 
-        onScanSelected(rawBase64);
+        onScanSelected({
+          data: rawBase64,
+          mimeType: file.type || 'image/jpeg'
+        });
         if (fileInputRef.current) fileInputRef.current.value = '';
       };
       reader.readAsDataURL(file);

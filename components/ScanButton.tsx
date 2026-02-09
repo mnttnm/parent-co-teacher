@@ -1,8 +1,9 @@
 
 import React, { useRef } from 'react';
+import { StoredImage } from '../types';
 
 interface ScanButtonProps {
-  onImageSelected: (base64: string) => void;
+  onImageSelected: (image: StoredImage) => void;
   isLoading: boolean;
   label?: string;
 }
@@ -18,7 +19,10 @@ export const ScanButton: React.FC<ScanButtonProps> = ({ onImageSelected, isLoadi
         const base64String = reader.result as string;
         // Remove data URL prefix
         const rawBase64 = base64String.split(',')[1]; 
-        onImageSelected(rawBase64);
+        onImageSelected({
+          data: rawBase64,
+          mimeType: file.type || 'image/jpeg'
+        });
         // Reset input to allow selecting the same file again if needed
         if (fileInputRef.current) fileInputRef.current.value = '';
       };

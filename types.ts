@@ -6,7 +6,10 @@ export interface KidProfile {
   subject: string; // Default subject for the demo
   avatarColor: string;
   schoolType: string; // e.g., 'English Medium'
+  preferredLanguage: ParentLanguage; // Parent instruction language preference
 }
+
+export type ParentLanguage = 'hinglish' | 'english';
 
 export type SessionStatus = 'idle' | 'scanning' | 'analyzing' | 'choice' | 'generating' | 'active_homework' | 'active_chapter' | 'revision' | 'micro_lesson';
 
@@ -28,6 +31,11 @@ export interface VocabularyItem {
   pronunciation: string; // Phonetic spelling
 }
 
+export interface StoredImage {
+  data: string;
+  mimeType: string;
+}
+
 // Detailed Question Structure
 export interface HomeworkQuestion {
   id: number;
@@ -40,9 +48,9 @@ export interface HomeworkQuestion {
 
 // Existing Homework Session
 export interface GuidedSession {
-  parentContextOriginal: string; // Hinglish explanation of the overall topic
-  parentContextEnglish: string;  
-  speakScript: string;           // Intro script
+  parentContextOriginal: string; // Primary parent-language explanation
+  parentContextEnglish: string;  // Secondary support-language explanation
+  speakScript: string;           // Intro script in primary parent language
   visualCuePrompt: string;       
   vocabularyHelp: VocabularyItem[]; 
   guidedQuestions: string[];     // General check-in questions
@@ -57,10 +65,10 @@ export interface SubChapter {
   id: number;
   title: string;
   originalText: string;          // 1. Original Extracted Content
-  parentExplanation: string;     // 2. Parent-Friendly Explanation (Simple English)
-  teachingGuide: string;         // 3. How to Teach Riya (Guide for parent)
-  simplifiedEnglish: string;     // 4. Super-Simplified English Version
-  kidExplanation: string;        // 5. Kid-Facing Explanation (English)
+  parentExplanation: string;     // 2. Parent-friendly explanation in primary parent language
+  teachingGuide: string;         // 3. How to teach (primary parent language)
+  simplifiedEnglish: string;     // 4. Secondary support-language summary
+  kidExplanation: string;        // 5. Kid-facing script in primary parent language
 }
 
 export interface ChapterGuide {
@@ -79,7 +87,7 @@ export interface HistoryItem {
   type: 'chapter' | 'homework';
   analysis: HomeworkAnalysis;
   data: ChapterGuide | GuidedSession;
-  images?: string[]; // Stored base64 images for offline access
+  images?: StoredImage[] | string[]; // Legacy string[] records are normalized at read-time
   feedbackTags?: string[]; // Tags like 'vocab', 'concept'
 }
 
@@ -93,7 +101,7 @@ export interface RevisionQuiz {
     type: 'mcq' | 'flashcard';
     options?: string[];
     correctAnswer: string;
-    explanation: string; // Hinglish
+    explanation: string; // Parent-friendly explanation in primary language
   }[];
 }
 
@@ -102,7 +110,7 @@ export interface MicroLesson {
   focusArea: string; // e.g., 'Vocabulary'
   steps: {
     text: string;
-    speakScript: string; // Hinglish
+    speakScript: string; // Primary parent language
     visualPrompt?: string;
   }[];
 }

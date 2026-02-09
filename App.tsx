@@ -12,7 +12,7 @@ import { Confetti } from './components/Confetti';
 import { ScanButton } from './components/ScanButton'; // Ensure this is imported
 import { MarathonAgentPanel } from './components/MarathonAgentPanel';
 import { KIDS } from './constants';
-import { KidProfile, HomeworkAnalysis, GuidedSession, ChapterGuide, HistoryItem, RevisionQuiz, MicroLesson, MarathonPlan } from './types';
+import { KidProfile, HomeworkAnalysis, GuidedSession, ChapterGuide, HistoryItem, RevisionQuiz, MicroLesson, MarathonPlan, StoredImage } from './types';
 import {
   analyzeHomeworkImage,
   generateParentGuide,
@@ -41,7 +41,7 @@ const App: React.FC = () => {
   const [activeKid, setActiveKid] = useState<KidProfile>(KIDS[0]);
   const [status, setStatus] = useState<AppStatus>('idle');
   const [activeTab, setActiveTab] = useState<Tab>('home');
-  const [scannedImages, setScannedImages] = useState<string[]>([]);
+  const [scannedImages, setScannedImages] = useState<StoredImage[]>([]);
   const [isChildMenuOpen, setIsChildMenuOpen] = useState(false); // NEW: Dropdown State
   
   // Data State
@@ -60,6 +60,8 @@ const App: React.FC = () => {
   const [marathonPlan, setMarathonPlan] = useState<MarathonPlan | null>(null);
   const [isMarathonGenerating, setIsMarathonGenerating] = useState(false);
   const [isAgentCheckingIn, setIsAgentCheckingIn] = useState(false);
+  const primaryLanguageLabel = activeKid.preferredLanguage === 'english' ? 'English' : 'Hinglish';
+  const secondaryLanguageLabel = activeKid.preferredLanguage === 'english' ? 'Hinglish' : 'English';
 
   useEffect(() => {
     refreshData();
@@ -72,6 +74,19 @@ const App: React.FC = () => {
     setDashboardStats(stats);
     const latestPlan = await getLatestMarathonPlan(activeKid.id);
     setMarathonPlan(latestPlan);
+  };
+
+  const normalizeStoredImages = (images?: HistoryItem['images']): StoredImage[] => {
+    if (!images || images.length === 0) return [];
+    return images.map((image) => {
+      if (typeof image === 'string') {
+        return { data: image, mimeType: 'image/jpeg' };
+      }
+      return {
+        data: image.data,
+        mimeType: image.mimeType || 'image/jpeg'
+      };
+    });
   };
 
   // --- Handlers ---
@@ -95,8 +110,8 @@ const App: React.FC = () => {
     setShowConfetti(false);
   };
 
-  const handleImageSelected = (base64Image: string) => {
-    setScannedImages(prev => [...prev, base64Image]);
+  const handleImageSelected = (image: StoredImage) => {
+    setScannedImages(prev => [...prev, image]);
     setStatus('scanning');
     setActiveTab('home'); 
   };
@@ -115,7 +130,8 @@ const App: React.FC = () => {
     const kid = KIDS.find(k => k.id === item.kidId) || KIDS[0];
     setActiveKid(kid);
     
-    if (item.images && item.images.length > 0) setScannedImages(item.images);
+    const restoredImages = normalizeStoredImages(item.images);
+    if (restoredImages.length > 0) setScannedImages(restoredImages);
     
     if (item.type === 'chapter') {
       setChapterGuide(item.data as ChapterGuide);
@@ -145,7 +161,7 @@ const App: React.FC = () => {
 
   const startHomeworkMode = async (analysisData: HomeworkAnalysis) => {
     setStatus('generating');
-    const guideResult = await generateParentGuide(scannedImages, analysisData, activeKid);
+    const guideResult = await generateParentGuide(scannedImages, analysisData, activeKid, activeKid.preferredLanguage);
     setGuide(guideResult);
     const saved = await saveSession(activeKid.id, analysisData, 'homework', guideResult, scannedImages);
     if (saved) setCurrentSessionId(saved.id);
@@ -155,7 +171,7 @@ const App: React.FC = () => {
 
   const startChapterMode = async (analysisData: HomeworkAnalysis) => {
     setStatus('generating');
-    const chapterResult = await generateChapterGuide(scannedImages, analysisData, activeKid);
+    const chapterResult = await generateChapterGuide(scannedImages, analysisData, activeKid, activeKid.preferredLanguage);
     setChapterGuide(chapterResult);
     setCurrentChunkIndex(0);
     const saved = await saveSession(activeKid.id, analysisData, 'chapter', chapterResult, scannedImages);
@@ -167,7 +183,7 @@ const App: React.FC = () => {
   const startRevision = async (topic: string) => {
     setStatus('generating');
     try {
-      const quiz = await generateRevisionQuiz(topic, activeKid);
+      const quiz = await generateRevisionQuiz(topic, activeKid, activeKid.preferredLanguage);
       setRevisionQuiz(quiz);
       setStatus('revision');
     } catch (e) {
@@ -179,7 +195,7 @@ const App: React.FC = () => {
   const startMicroLesson = async (topic: string, weakness: string) => {
     setStatus('generating');
     try {
-      const lesson = await generateMicroLesson(topic, weakness, activeKid);
+      const lesson = await generateMicroLesson(topic, weakness, activeKid, activeKid.preferredLanguage);
       setMicroLesson(lesson);
       setStatus('micro_lesson');
     } catch (e) {
@@ -193,7 +209,7 @@ const App: React.FC = () => {
     setStatus('generating');
     try {
       const kidHistory = history.filter(item => item.kidId === activeKid.id);
-      const plan = await generateMarathonPlan(activeKid, kidHistory, dashboardStats);
+      const plan = await generateMarathonPlan(activeKid, kidHistory, dashboardStats, activeKid.preferredLanguage);
       await saveMarathonPlan(plan);
       setMarathonPlan(plan);
     } catch (e) {
@@ -228,7 +244,7 @@ const App: React.FC = () => {
 
     setIsAgentCheckingIn(true);
     try {
-      const checkIn = await runMarathonCheckIn(marathonPlan, activeKid, dashboardStats);
+      const checkIn = await runMarathonCheckIn(marathonPlan, activeKid, dashboardStats, activeKid.preferredLanguage);
 
       let updatedPlan: MarathonPlan = {
         ...marathonPlan,
@@ -335,6 +351,8 @@ const App: React.FC = () => {
   );
 
   const renderEmptyState = () => {
+    const kidHistory = history.filter(item => item.kidId === activeKid.id);
+
     return (
       <div className="px-6 pt-8 pb-32 animate-fade-in">
         {/* Welcome Card */}
@@ -374,13 +392,13 @@ const App: React.FC = () => {
         />
 
         {/* Recent Sessions List */}
-        {history.length > 0 && (
+        {kidHistory.length > 0 && (
           <div className="mt-8 text-left animate-slide-up delay-200">
             <div className="flex justify-between items-center mb-4 px-1">
               <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wide">Recent Sessions</h3>
             </div>
             <div className="space-y-3">
-              {history.map((item) => (
+              {kidHistory.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => restoreSession(item)}
@@ -417,7 +435,7 @@ const App: React.FC = () => {
        <div className="grid grid-cols-2 gap-4 mb-6 animate-slide-up delay-100">
          {scannedImages.map((img, idx) => (
            <div key={idx} className="relative rounded-xl overflow-hidden shadow-sm border border-stone-200 aspect-[3/4] group">
-             <img src={`data:image/jpeg;base64,${img}`} className="w-full h-full object-cover" alt={`Page ${idx + 1}`} />
+             <img src={`data:${img.mimeType};base64,${img.data}`} className="w-full h-full object-cover" alt={`Page ${idx + 1}`} />
              <div className="absolute inset-0 bg-black/10"></div>
              <button 
                onClick={() => removeImage(idx)} 
@@ -491,7 +509,7 @@ const App: React.FC = () => {
               <div className="bg-amber-50 border-l-4 border-amber-400 rounded-r-xl p-5 shadow-sm">
                  <h3 className="flex items-center text-amber-800 font-bold mb-2">🧠 Understand It</h3>
                  <p className="text-stone-800 mb-3">{chunk.parentExplanation}</p>
-                 <AudioPlayer text={chunk.parentExplanation} label="Listen (Hinglish)" className="scale-90 origin-left" />
+                 <AudioPlayer text={chunk.parentExplanation} label={`Listen (${primaryLanguageLabel})`} className="scale-90 origin-left" />
               </div>
               <div className="bg-teal-50 border-l-4 border-teal-500 rounded-r-xl p-5 shadow-sm">
                  <h3 className="flex items-center text-teal-800 font-bold mb-2">🗣️ Say to {activeKid.name}</h3>
@@ -525,7 +543,7 @@ const App: React.FC = () => {
            <div className="bg-amber-50 border-l-4 border-amber-400 rounded-r-xl p-5 shadow-sm">
               <div className="flex justify-between mb-2">
                   <h3 className="text-amber-800 font-bold">🧠 For You (Parent)</h3>
-                  <button onClick={() => setShowEnglishContext(!showEnglishContext)} className="text-xs bg-white text-amber-700 px-2 py-1 rounded border border-amber-200">{showEnglishContext ? "Hinglish" : "English"}</button>
+                  <button onClick={() => setShowEnglishContext(!showEnglishContext)} className="text-xs bg-white text-amber-700 px-2 py-1 rounded border border-amber-200">{showEnglishContext ? primaryLanguageLabel : secondaryLanguageLabel}</button>
               </div>
               <p className="text-stone-800 leading-relaxed text-lg mb-4">{contextText}</p>
               <AudioPlayer text={contextText} label="Listen Explanation" className="w-full justify-center" />
@@ -627,7 +645,7 @@ const App: React.FC = () => {
              {status === 'choice' && renderChoiceScreen()}
              {status === 'active_chapter' && renderActiveChapterSession()}
              {status === 'active_homework' && renderActiveHomeworkSession()}
-             {status === 'revision' && revisionQuiz && <RevisionSession quiz={revisionQuiz} onClose={handleRevisionComplete} />}
+             {status === 'revision' && revisionQuiz && <RevisionSession quiz={revisionQuiz} onClose={handleRevisionComplete} parentLanguage={activeKid.preferredLanguage} />}
              {status === 'micro_lesson' && renderMicroLesson()}
            </>
         ) : (
