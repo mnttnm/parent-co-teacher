@@ -707,6 +707,18 @@ export const generateMarathonPlan = async (
   const historySummary = summarizeHistoryForPrompt(history);
   const now = Date.now();
 
+  const hinglishExamples = parentLanguage === 'hinglish' ? `
+    **HINGLISH EXAMPLES (use this style):**
+    - parentAction: "${kid.name} se poocho: 'Agar tum poet hote, toh kya likhte?'"
+    - childTask: "Apni copy mein 2 lines likho jo tumne poem se seekhi"
+    - objective: "Poem ka main message samajhna"
+    - evidenceToCapture: "${kid.name} ka jawab record karo"
+    - fallbackPlan: "Agar mushkil lage toh pehle aap khud poem padho, phir samjhao"
+
+    **DO NOT write formal English like:** "Read the second stanza aloud and ask..."
+    **DO write natural Hinglish like:** "Doosra stanza padho aur poocho..."
+  ` : '';
+
   const basePrompt = `
     You are an autonomous learning orchestrator for a parent-led education app.
     Create a focused multi-day "marathon" plan for:
@@ -720,13 +732,18 @@ export const generateMarathonPlan = async (
     Recent learning history:
     ${historySummary}
 
+    **CRITICAL LANGUAGE RULES:**
+    ${getLanguageRules(parentLanguage)}
+    ${hinglishExamples}
+
     Plan requirements:
     1. Duration 5-7 days, one mission per day.
     2. Every mission must have: focusSkill, objective, parentAction, childTask, evidenceToCapture, fallbackPlan, estimatedMinutes.
-    3. Keep actions practical for low-literacy parents.
+    3. **IMPORTANT:** Keep actions practical for LOW-LITERACY parents. Use simple, everyday words.
     4. Maintain progression: warm-up -> core concept -> recall -> exam readiness.
     5. Use concise text and avoid generic advice.
-    6. Write objective, parentAction, childTask, evidenceToCapture, and fallbackPlan in PRIMARY language (${getPrimaryLanguageLabel(parentLanguage)}).
+    6. **ALL text fields** (planTitle, strategy, objective, parentAction, childTask, evidenceToCapture, fallbackPlan) MUST be in ${getPrimaryLanguageLabel(parentLanguage)}.
+    7. focusSkill can remain in English (like "Vocabulary", "Comprehension") but keep it simple.
   `;
 
   try {
@@ -765,10 +782,10 @@ export const generateMarathonPlan = async (
     });
 
     const draftParsed = safeParseJson<MarathonDraftPlan>(draftResponse.text) || {
-      planTitle: parentLanguage === 'english' ? '7-Day Learning Marathon' : '7-Day Learning Marathon',
+      planTitle: parentLanguage === 'english' ? '7-Day Learning Marathon' : '7-Din Ka Padhai Plan',
       strategy: parentLanguage === 'english'
         ? 'Short, evidence-based daily loops for parent-guided practice.'
-        : 'Short, evidence-based daily loops for parent-guided practice.',
+        : 'Har din thoda-thoda practice karenge, aap guide karenge.',
       durationDays: 7,
       missions: []
     };
@@ -782,7 +799,14 @@ export const generateMarathonPlan = async (
       Original plan:
       ${JSON.stringify(draft, null, 2)}
 
-      Return a stronger plan that fixes missing coverage and keeps mission actions concrete.
+      **CRITICAL LANGUAGE RULES:**
+      ${getLanguageRules(parentLanguage)}
+      ${hinglishExamples}
+
+      Return a stronger plan that:
+      1. Fixes missing coverage and keeps mission actions concrete
+      2. **MUST keep ALL text in ${getPrimaryLanguageLabel(parentLanguage)}**
+      3. Uses simple, everyday language a low-literacy parent can understand
     `;
 
     const refinedResponse = await ai.models.generateContent({

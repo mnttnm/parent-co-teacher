@@ -9,8 +9,9 @@ import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { RevisionSession } from './components/RevisionSession';
 import { SmartLoader } from './components/SmartLoader';
 import { Confetti } from './components/Confetti';
-import { ScanButton } from './components/ScanButton'; // Ensure this is imported
+import { ScanActionSheet } from './components/ScanActionSheet';
 import { MarathonAgentPanel } from './components/MarathonAgentPanel';
+import { MarathonPlanModal } from './components/MarathonPlanModal';
 import { KIDS } from './constants';
 import { KidProfile, HomeworkAnalysis, GuidedSession, ChapterGuide, HistoryItem, RevisionQuiz, MicroLesson, MarathonPlan, StoredImage } from './types';
 import {
@@ -60,6 +61,7 @@ const App: React.FC = () => {
   const [marathonPlan, setMarathonPlan] = useState<MarathonPlan | null>(null);
   const [isMarathonGenerating, setIsMarathonGenerating] = useState(false);
   const [isAgentCheckingIn, setIsAgentCheckingIn] = useState(false);
+  const [showMarathonModal, setShowMarathonModal] = useState(false);
   const primaryLanguageLabel = activeKid.preferredLanguage === 'english' ? 'English' : 'Hinglish';
   const secondaryLanguageLabel = activeKid.preferredLanguage === 'english' ? 'Hinglish' : 'English';
 
@@ -302,8 +304,8 @@ const App: React.FC = () => {
     <div className="bg-white border-b border-stone-200 pt-safe-top pb-3 px-6 shadow-[0_2px_10px_-2px_rgba(0,0,0,0.05)] sticky top-0 z-30 transition-all">
       <div className="flex justify-between items-center pt-3">
         <div>
-           <h1 className="text-xl font-bold text-teal-700 tracking-tight">ParentGuide</h1>
-           <p className="text-stone-400 text-[10px] uppercase tracking-widest">Co-Teacher</p>
+           <h1 className="text-xl font-bold text-teal-700 tracking-tight">Parent-Co-Teacher</h1>
+           <p className="text-stone-400 text-[10px] uppercase tracking-widest">AI Learning Guide</p>
         </div>
         
         {/* Child Switcher Pill */}
@@ -370,26 +372,28 @@ const App: React.FC = () => {
           </p>
         </div>
 
-        <MarathonAgentPanel
-          kid={activeKid}
-          history={history}
-          weaknessStats={dashboardStats}
-          plan={marathonPlan}
-          isGenerating={isMarathonGenerating}
-          isCheckInRunning={isAgentCheckingIn}
-          onGeneratePlan={handleGenerateMarathonPlan}
-          onToggleMission={handleMissionToggle}
-          onRunCheckIn={handleAgentCheckIn}
-        />
-
         {/* Analytics */}
-        <AnalyticsDashboard 
-          stats={dashboardStats} 
+        <AnalyticsDashboard
+          stats={dashboardStats}
           activeKid={activeKid}
           history={history}
           onStartRevision={startRevision}
           onStartMicroLesson={startMicroLesson}
         />
+
+        {/* Marathon Agent - Only shows when there's data */}
+        <div className="mt-6">
+          <MarathonAgentPanel
+            kid={activeKid}
+            history={history}
+            weaknessStats={dashboardStats}
+            plan={marathonPlan}
+            isGenerating={isMarathonGenerating}
+            parentLanguage={activeKid.preferredLanguage}
+            onGeneratePlan={handleGenerateMarathonPlan}
+            onViewPlan={() => setShowMarathonModal(true)}
+          />
+        </div>
 
         {/* Recent Sessions List */}
         {kidHistory.length > 0 && (
@@ -430,29 +434,24 @@ const App: React.FC = () => {
   };
   
   const renderScanningState = () => (
-    <div className="px-6 py-8 pt-12 pb-40 text-center animate-fade-in">
-       <h2 className="text-xl font-bold text-stone-900 mb-4 animate-slide-up">Scanned Pages ({scannedImages.length})</h2>
-       <div className="grid grid-cols-2 gap-4 mb-6 animate-slide-up delay-100">
+    <div className="px-6 py-8 pt-12 pb-56 text-center animate-fade-in">
+       <h2 className="text-xl font-bold text-stone-900 mb-4 animate-slide-up">Scanned Pages</h2>
+       <div className="grid grid-cols-2 gap-4 animate-slide-up delay-100">
          {scannedImages.map((img, idx) => (
            <div key={idx} className="relative rounded-xl overflow-hidden shadow-sm border border-stone-200 aspect-[3/4] group">
              <img src={`data:${img.mimeType};base64,${img.data}`} className="w-full h-full object-cover" alt={`Page ${idx + 1}`} />
-             <div className="absolute inset-0 bg-black/10"></div>
-             <button 
-               onClick={() => removeImage(idx)} 
+             <div className="absolute inset-0 bg-black/5"></div>
+             <button
+               onClick={() => removeImage(idx)}
                className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center bg-red-500 text-white rounded-full shadow-md active:scale-95"
              >
                ✕
              </button>
+             <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs font-bold px-2 py-1 rounded-full">
+               {idx + 1}
+             </div>
            </div>
          ))}
-       </div>
-       <div className="fixed bottom-28 left-6 right-6 z-40 animate-slide-up delay-200">
-         <button 
-           onClick={startAnalysis} 
-           className="w-full bg-teal-600 text-white font-bold py-4 rounded-full shadow-xl shadow-teal-200 text-lg flex items-center justify-center space-x-2 animate-bounce-subtle"
-         >
-           <span>✨ Start Teaching ({scannedImages.length})</span>
-         </button>
        </div>
     </div>
   );
@@ -635,6 +634,21 @@ const App: React.FC = () => {
 
       <main className="max-w-md mx-auto">
         {showConfetti && <Confetti />}
+
+        {/* Marathon Plan Full-Screen Modal */}
+        {showMarathonModal && marathonPlan && (
+          <MarathonPlanModal
+            plan={marathonPlan}
+            kid={activeKid}
+            parentLanguage={activeKid.preferredLanguage}
+            isCheckInRunning={isAgentCheckingIn}
+            onClose={() => setShowMarathonModal(false)}
+            onToggleMission={handleMissionToggle}
+            onRunCheckIn={handleAgentCheckIn}
+            onRefreshPlan={handleGenerateMarathonPlan}
+            isGenerating={isMarathonGenerating}
+          />
+        )}
         
         {/* Render Logic based on Tab OR Active Mode */}
         {status !== 'idle' ? (
@@ -657,30 +671,22 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* 2. BOTTOM NAVIGATION (Always visible unless in deep immersive mode?) */}
-      {(status === 'idle' || status === 'scanning') && (
-        <>
-          <BottomNavigation 
-            activeTab={activeTab} 
-            onTabChange={setActiveTab} 
-            onScanSelected={handleImageSelected} 
-            isScanning={status === 'scanning'}
-          />
-          {/* Use ScanButton when status is 'scanning' to allow adding more pages or finalizing */}
-          {(status === 'scanning') && (
-            <ScanButton 
-               onImageSelected={handleImageSelected} 
-               isLoading={false}
-               label="Add More or Done"
-            />
-          )}
-          {/* Note: The main Scan action is now central in BottomNavigation for 'idle' state. 
-              The ScanButton component is re-used here just for the 'scanning' state flow 
-              where users might want to add more pages, OR we can rely on the UI inside renderScanningState.
-              Actually, renderScanningState has a 'Start Teaching' button.
-              So we just need the FAB in the nav bar to trigger the initial scan.
-          */}
-        </>
+      {/* 2. BOTTOM NAVIGATION / ACTION SHEET */}
+      {status === 'idle' && (
+        <BottomNavigation
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onScanSelected={handleImageSelected}
+          isScanning={false}
+        />
+      )}
+
+      {status === 'scanning' && (
+        <ScanActionSheet
+          pageCount={scannedImages.length}
+          onStartTeaching={startAnalysis}
+          onAddPage={handleImageSelected}
+        />
       )}
     </div>
   );
