@@ -57,3 +57,4 @@ dist-ssr
 .windsurf/
 .zencoder/
 skills/
+.vercel
